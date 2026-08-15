@@ -1,0 +1,105 @@
+name: Build and release mod zip
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read the manifest
+        id: info
+        run: |
+          VERSION=$(python3 -c "import json;print(json.load(open('manifest.json'))['version'])")
+          MOD_ID=$(python3 -c "import json;print(json.load(open('manifest.json'))['id'])")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "mod_id=$MOD_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether this version is new
+        id: check
+        run: |
+          TAG="${{ steps.info.outputs.tag }}"
+          git fetch --tags --force
+          if git show-ref --tags --verify --quiet "refs/tags/$TAG"; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check version agreement
+        if: steps.check.outputs.new == 'true'
+        run: |
+          VERSION="${{ steps.info.outputs.version }}"
+          CHANGELOG=$(grep -m1 '^## ' CHANGELOG.md | sed 's/^## *//' | tr -d '[]' | awk '{print $1}')
+          LUA=$(grep -o 'local VERSION *= *"[^"]*"' main.lua | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "manifest  : $VERSION"
+          echo "changelog : $CHANGELOG"
+          echo "main.lua  : $LUA"
+          test "$VERSION" = "$CHANGELOG"
+          test "$VERSION" = "$LUA"
+
+      - name: Build flat installable zip
+        if: steps.check.outputs.new == 'true'
+        id: build
+        run: |
+          MOD_ID="${{ steps.info.outputs.mod_id }}"
+          VERSION="${{ steps.info.outputs.version }}"
+          mkdir package
+          while IFS= read -r -d '' FILE; do
+            case "$FILE" in
+              .github/*|tests/*|.gitignore|.modkitignore) continue ;;
+            esac
+            mkdir -p "package/$(dirname "$FILE")"
+            cp "$FILE" "package/$FILE"
+          done < <(git ls-files -z)
+          cd package
+          zip -r "../$MOD_ID-$VERSION.zip" . -x '*.DS_Store'
+          cd ..
+          ASSET="$MOD_ID-$VERSION.zip"
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "$ASSET" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          test "$(unzip -Z1 "$ASSET" | head -1)" != "$MOD_ID/"
+          unzip -Z1 "$ASSET" | grep -qx 'manifest.json'
+
+      - name: Tag the version
+        if: steps.check.outputs.new == 'true'
+        run: |
+          TAG="${{ steps.info.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "${{ steps.info.outputs.mod_id }} ${{ steps.info.outputs.version }}"
+          git push origin "$TAG"
+
+      - name: Publish the release
+        if: steps.check.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.info.outputs.tag }}"
+          ASSET="${{ steps.build.outputs.asset }}"
+          VERSION="${{ steps.info.outputs.version }}"
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" || $0 ~ "^## " v "([[:space:]]|$)" {found=1; next}
+            found && /^## / {exit}
+            found {print}
+          ' CHANGELOG.md > notes.md
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "**Install:** download \`$ASSET\`, then choose"
+            echo "**MODS → Import mod .zip** and fully quit and relaunch."
+            echo ""
+            echo "\`SHA-256: ${{ steps.build.outputs.sha256 }}\`"
+          } >> notes.md
+          gh release create "$TAG" "$ASSET" --title "$TAG" --notes-file notes.md

@@ -1,0 +1,12 @@
+{
+  "name": "Expanded Species",
+  "author": "Mister Miracle",
+  "version": "0.2.0",
+  "description": "A Gold framework for custom species and uncapped grass/water pools.",
+  "tags": [
+    "framework",
+    "gold",
+    "gen2",
+    "modding-tool"
+  ]
+}

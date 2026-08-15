@@ -1,0 +1,23 @@
+{
+  "id": "expanded_species",
+  "name": "Expanded Species",
+  "version": "0.2.0",
+  "author": "Mister Miracle",
+  "description": "Gold-only framework for custom Pokemon and extended weighted grass/water encounter pools.",
+  "games": [
+    "gold"
+  ],
+  "game_version": ">=0.1.79 <2.0.0",
+  "api": 2,
+  "profile": "content",
+  "category": "FRAMEWORK",
+  "priority": 1000,
+  "affects_link": true,
+  "permissions": [
+    "engine_internals"
+  ],
+  "dependencies": [],
+  "optional_dependencies": [],
+  "conflicts": [],
+  "entry": "main.lua"
+}
