@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1] — 2026-08-15
+
+- Documented custom normal and shiny palette assignment, Gold's two supplied
+  middle colors, vanilla palette fallbacks and the `trueColor` opt-out.
+- Added a ZIP-safe `mod:read` pattern for splitting larger species packs into
+  one Lua definition file per custom Pokemon.
+
 ## [0.2.0] — 2026-08-15
 
 - Added provider-owned `addGrassEncounter` and `addWaterEncounter` APIs.

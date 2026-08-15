@@ -67,6 +67,56 @@ icon = {
 If no icon or palette is supplied, the framework uses Ditto. Set the matching
 fallback field to reuse a closer vanilla species instead.
 
+## Battle palettes
+
+Gold battle pictures use four color indices. The engine supplies pure white
+for index 0 and pure black for index 3. A species palette supplies the two
+middle colors for its normal and shiny forms:
+
+```lua
+expanded.exports.register(mod, {
+  id = speciesId,
+  -- the remaining required species fields
+  palette = {
+    normal = {
+      { 168, 232, 120 }, -- light middle shade
+      { 64, 152, 56 },   -- dark middle shade
+    },
+    shiny = {
+      { 232, 216, 112 },
+      { 152, 120, 40 },
+    },
+  },
+})
+```
+
+Each color is an `{ red, green, blue }` triple with integer channels from 0
+through 255. Supply exactly two triples per form. The framework copies this
+record into Gold's live palette table under the custom species string ID, so
+the same palette follows that species into front and back battle pictures and
+the Gold screens that render species colors. The engine chooses `shiny` when
+the individual Pokemon has shiny DVs.
+
+Design the front and back sprite art as a four-shade image whose pixels mean
+white, light middle, dark middle and black. Normal and shiny forms share the
+same art and swap only the two middle colors. If the species sets
+`trueColor = true`, Gold deliberately bypasses this palette remapping and draws
+the PNG's own colors instead.
+
+To borrow an existing Gold palette, omit `palette` and use:
+
+```lua
+paletteFallback = "TANGELA"
+```
+
+An unknown fallback safely falls through to Ditto. If both fields are omitted,
+Ditto is also the default. A supplied custom `palette` always wins over
+`paletteFallback`.
+
+Test the normal palette by spawning the species through Battle Spawner. Test
+the shiny palette with an individual that actually has Gold's shiny DVs; merely
+choosing shiny colors in the definition does not make every individual shiny.
+
 ## Custom cries
 
 Bundle an authored sound inside the species pack and resolve its path through
@@ -124,6 +174,91 @@ local nextFree = expanded.exports.nextIndex()
 
 The exported `api_version` is `1`. Check it if your species pack depends on a
 newer contract.
+
+## Organizing a larger species pack
+
+Yes, custom Pokemon definitions can be split out of `main.lua`. A useful pack
+layout is:
+
+```text
+main.lua
+species/
+  burgela.lua
+  coinpur.lua
+  orfry.lua
+assets/
+  burgela_front.png
+  burgela_back.png
+  ...
+```
+
+Keep `main.lua` as the coordinator that finds Expanded Species and owns the
+registry calls. Let each species file return its own data factory. For example,
+`species/burgela.lua` can use this shape (the required stats/moves are shortened
+here only to keep the example readable):
+
+```lua
+return function(mod)
+  local id = "MY_PACK_BURGELA"
+  return {
+    id = id,
+    cry = { base = "TANGELA" },
+    definition = {
+      id = id,
+      name = "BURGELA",
+      -- types, baseStats, moves, breeding data, and other required fields
+      spriteFront = mod.assets:path("assets/burgela_front.png"),
+      spriteBack = mod.assets:path("assets/burgela_back.png"),
+      cry = id,
+      paletteFallback = "TANGELA",
+    },
+  }
+end
+```
+
+The public `mod:read(relative)` helper reads a file through gen1recomp's mod
+filesystem, including an imported ZIP. Compile that returned source rather
+than relying on a desktop filesystem path:
+
+```lua
+local function loadPackFile(relative)
+  local source, readError = mod:read(relative)
+  assert(source, readError or ("Could not read " .. relative))
+
+  local compile = assert(loadstring or load, "No Lua compiler is available")
+  local chunk, compileError = compile(source, "@" .. mod.path .. "/" .. relative)
+  assert(chunk, compileError)
+
+  local ok, result = pcall(chunk)
+  assert(ok, result)
+  return result
+end
+
+local files = {
+  "species/burgela.lua",
+  "species/coinpur.lua",
+  "species/orfry.lua",
+}
+
+for _, relative in ipairs(files) do
+  local build = loadPackFile(relative)
+  assert(type(build) == "function", relative .. " must return a function")
+
+  local species = build(mod)
+  mod.content.cries:register(species.id, species.cry)
+  expanded.exports.register(mod, species.definition)
+end
+```
+
+Use an explicit ordered file list. The public mod surface provides `read`, not
+directory enumeration, and a written list makes registration order and missing
+files diagnosable. Keep all `mod.content.*` writes in `main.lua`; the per-species
+files should return owned data rather than registering content themselves.
+
+Do not use `loadfile` with a Windows/macOS path for this pattern. It may appear
+to work in an unpacked development folder while failing after the pack is
+imported. `mod:read` goes through the same filesystem abstraction the loader
+uses for folder and packaged mods.
 
 ## Extended wild encounter pools
 

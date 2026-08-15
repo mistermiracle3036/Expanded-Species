@@ -11,7 +11,7 @@ extended weighted grass/swimming encounter pools.
 
 ## For players
 
-Install `expanded_species-0.2.0.zip` like any other gen1recomp mod, then install
+Install `expanded_species-0.2.1.zip` like any other gen1recomp mod, then install
 a species pack that declares Expanded Species as a dependency. The framework
 does not add Pokemon by itself.
 
@@ -107,6 +107,31 @@ framework.exports.addGrassEncounter(mod, {
 The vanilla pool has weight 100. One custom entry with weight 1 therefore has
 a 1/101 chance when an encounter triggers; it does not change how often steps
 trigger battles.
+
+### Palettes
+
+Gold battle pictures use four shades. The engine supplies white and black;
+species-pack authors supply the two middle RGB colors for both the normal and
+shiny forms:
+
+```lua
+palette = {
+  normal = {
+    { 168, 232, 120 },
+    { 64, 152, 56 },
+  },
+  shiny = {
+    { 232, 216, 112 },
+    { 152, 120, 40 },
+  },
+},
+```
+
+Put `palette` inside the record passed to `framework.exports.register`. Each
+color is an `{ red, green, blue }` triple using values from 0 through 255. To
+reuse a vanilla palette instead, set `paletteFallback = "TANGELA"`. Omitting
+both falls back to Ditto. See [AUTHOR_API.md](AUTHOR_API.md) for sprite-shade,
+true-color, shiny-testing, and multi-file species-pack guidance.
 
 ## Important limits
 

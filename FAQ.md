@@ -49,3 +49,16 @@ pool. Practical memory and load time are the only slot-count boundary.
 Vanilla as a whole has weight 100. If all custom entries on a route total 20,
 custom species collectively appear in 20/120 of triggered encounters. The
 original Gold slot ratios stay unchanged inside the remaining 100/120.
+
+## How do I give a custom Pokemon its own colors?
+
+Add `palette = { normal = {...}, shiny = {...} }` to its Expanded Species
+definition. Each form supplies two RGB triples; Gold adds white and black.
+Use `paletteFallback = "TANGELA"` to borrow a vanilla palette, or omit both to
+use Ditto. A `trueColor = true` species uses the PNG's colors instead.
+
+## Can a species pack split Pokemon into separate Lua files?
+
+Yes. Keep registration in `main.lua`, place definitions under `species/`, and
+load them with the documented `mod:read` helper pattern. This works with
+imported ZIPs and keeps cries, sprites, palettes and stats grouped by species.

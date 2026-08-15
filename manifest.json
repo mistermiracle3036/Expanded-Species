@@ -1,7 +1,7 @@
 {
   "id": "expanded_species",
   "name": "Expanded Species",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": "Mister Miracle",
   "description": "Gold-only framework for custom Pokemon and extended weighted grass/water encounter pools.",
   "games": [

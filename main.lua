@@ -1,4 +1,4 @@
-local VERSION = "0.2.0"
+local VERSION = "0.2.1"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
