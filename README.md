@@ -16,7 +16,7 @@ checkpoint profiles, and compatibility reports.
 
 ## For players
 
-Install `expanded_species-0.6.2.zip` like any other gen1recomp mod, then install
+Install `expanded_species-0.6.3.zip` like any other gen1recomp mod, then install
 a species pack that declares Expanded Species as a dependency. The framework
 does not add Pokemon by itself.
 
@@ -29,7 +29,7 @@ Declare this dependency in your manifest:
 
 ```json
 "dependencies": [
-  "expanded_species@>=0.6.2 <2.0.0"
+  "expanded_species@>=0.6.3 <2.0.0"
 ]
 ```
 

@@ -1,6 +1,6 @@
 # Expanded Species author API
 
-API version: `1` (0.3 through 0.6.2 additions are backward-compatible capabilities)
+API version: `1` (0.3 through 0.6.3 additions are backward-compatible capabilities)
 
 ## Contract
 
@@ -216,7 +216,7 @@ local report = expanded.exports.diagnose("MY_PACK_AURORIX")
 allocated index and Dex number. `diagnose` checks the merged record, both battle
 sprites, allocation, Dex row, icon, palette, cry, and evolution targets.
 
-The exported `api_version` remains `1` because 0.3 through 0.6.2 only add methods;
+The exported `api_version` remains `1` because 0.3 through 0.6.3 only add methods;
 existing
 species packs keep working unchanged. This is Expanded Species' provider API,
 not the separate gen1recomp `"api": 2` value in `manifest.json`.
@@ -238,7 +238,7 @@ assert(required, capabilityError)
 Use this dependency range in the pack manifest:
 
 ```json
-"expanded_species@>=0.6.2 <2.0.0"
+"expanded_species@>=0.6.3 <2.0.0"
 ```
 
 Expanded Species reserves `2.0.0` for a breaking provider API. Compatible
@@ -749,7 +749,9 @@ local details = expanded.exports.formInfo(mon)
 `setForm(mon, nil)` clears the explicit form and returns the individual to its
 species `defaultForm`, or to base art when no default is declared. Gift,
 stationary, custom-trainer, vanilla-trainer-patch, `givePokemon`, and
-`startWildBattle` options all accept `form`.
+`startWildBattle` options all accept `form`. An Egg carrying `expandedForm`
+passes that field to the rebuilt hatchling record, so both the reveal and the
+resulting party Pokemon retain the explicit named form.
 
 On Gold 0.1.94, per-individual form routing works in battle front/back art,
 Summary, the selected PC preview, evolution, NPC-trade art and icon, Hall of

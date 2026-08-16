@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.3] — 2026-08-16
+
+### Fixed
+
+- Preserved an Egg's explicit `expandedForm` when Gold rebuilds it as the
+  hatched party record, so the hatch reveal and resulting Pokemon retain the
+  same named form rather than falling back to the species' base art.
+
 ## [0.6.2] — 2026-08-16
 
 ### Fixed

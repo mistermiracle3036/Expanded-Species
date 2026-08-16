@@ -1,4 +1,4 @@
-local VERSION = "0.6.2"
+local VERSION = "0.6.3"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
@@ -1456,6 +1456,28 @@ return function(mod)
                     if not handled then return original(screen) end
                     return withSpeciesPath(data, speciesId, "front", path,
                         function() return original(screen) end)
+                end
+            end)
+        -- Breeding.hatch rebuilds the hatchling through Gold's canonical Mon
+        -- builder. Arbitrary engine-external fields are intentionally absent
+        -- from that new record, so carry Expanded Species' one owned
+        -- per-individual field across before EggHatchAnim receives the mon.
+        patchBridgeMethod("src.core.gen2.Breeding", "hatch", "eggHatch.record",
+            function(original)
+                return function(data, save, index, nickname)
+                    local egg = save and save.party and save.party[index]
+                    local formId = egg and egg.expandedForm
+                    local hatched, effects = original(data, save, index, nickname)
+                    if formBridgeActive() and hatched and formId ~= nil then
+                        if formDefinition(hatched.species, formId, data) then
+                            hatched.expandedForm = formId
+                        else
+                            mod.log:warn(
+                                "Expanded Species: hatched form %s is unavailable for %s",
+                                tostring(formId), tostring(hatched.species))
+                        end
+                    end
+                    return hatched, effects
                 end
             end)
         patchBridgeMethod("src.ui.gen2.EggHatchAnim", "picColors",
