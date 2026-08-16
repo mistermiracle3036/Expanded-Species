@@ -68,6 +68,14 @@ grass/water rows, and the global Bug-Catching Contest pool. Headbutt, Rock
 Smash, and additional roaming slots are not exposed because Gold 0.1.94 does
 not provide safe registry-based runtime seams for them.
 
+## Why did the Pokédex AREA page show no nest marker or route name?
+
+Gold 0.1.94 correctly found grass and swimming nests but its AREA renderer read
+the Gen 1 landmark field instead of Gold's `gen2Landmarks` registry. Expanded
+Species 0.6.2 bridges that lookup, so the flashing marker and route name appear
+for both vanilla and custom species. The permanent one-line engine correction
+remains tracked for upstream.
+
 ## How do I give a custom Pokemon its own colors?
 
 Add `palette = { normal = {...}, shiny = {...} }` to its Expanded Species

@@ -1,4 +1,4 @@
-local VERSION = "0.6.1"
+local VERSION = "0.6.2"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
@@ -46,6 +46,7 @@ local CAPABILITIES = {
     extendedSwarms = true,
     extendedWater = true,
     goldFormScreens = true,
+    goldNestScreen = true,
     gifts = true,
     metadataQueries = true,
     localizedSpecies = true,
@@ -584,6 +585,10 @@ return function(mod)
             installed = false,
             adapters = {},
             errors = {},
+        },
+        nestBridge = {
+            installed = false,
+            error = nil,
         },
     }
 
@@ -1505,6 +1510,69 @@ return function(mod)
         return failures == 0
     end
 
+    -- Gold 0.1.94's Pokedex AREA page correctly finds nests through
+    -- data.gen2Encounters, but its draw pass resolves the returned landmark
+    -- indices through data.landmarks. Game2 owns the Gold records under
+    -- data.gen2Landmarks, so the lookup silently produces neither a marker nor
+    -- a route name. Supply the correct table only for that draw call. A future
+    -- engine that provides a native data.landmarks table bypasses this bridge,
+    -- and an engine that reads gen2Landmarks directly is unaffected by it.
+    local function installNestBridge()
+        state.nestBridge.installed = false
+        state.nestBridge.error = nil
+
+        local ok, PokedexMenu = pcall(require, "src.ui.gen2.PokedexMenu")
+        if not ok or type(PokedexMenu) ~= "table" then
+            state.nestBridge.error = "could not load Gold PokedexMenu: "
+                .. tostring(PokedexMenu)
+            mod.log:warn("Expanded Species nest bridge: %s",
+                state.nestBridge.error)
+            return false
+        end
+
+        PokedexMenu._expandedSpeciesNestOriginals =
+            PokedexMenu._expandedSpeciesNestOriginals or {}
+        local originals = PokedexMenu._expandedSpeciesNestOriginals
+        if originals.drawArea == nil then originals.drawArea = PokedexMenu.drawArea end
+        local original = originals.drawArea
+        if type(original) ~= "function" then
+            state.nestBridge.error = "Gold PokedexMenu.drawArea is unavailable"
+            mod.log:warn("Expanded Species nest bridge: %s",
+                state.nestBridge.error)
+            return false
+        end
+
+        PokedexMenu.drawArea = function(screen, ...)
+            if not formBridgeActive() then return original(screen, ...) end
+            local data = screenData(screen)
+            local goldLandmarks = data and data.gen2Landmarks
+            if not (type(goldLandmarks) == "table"
+                    and type(goldLandmarks.landmarks) == "table") then
+                return original(screen, ...)
+            end
+
+            local previous = data.landmarks
+            if type(previous) == "table"
+                    and type(previous.landmarks) == "table" then
+                return original(screen, ...)
+            end
+
+            if screen._expandedSpeciesNestLandmarks ~= goldLandmarks then
+                screen.landmarkByIndex = nil
+                screen._expandedSpeciesNestLandmarks = goldLandmarks
+            end
+            data.landmarks = goldLandmarks
+            local called, first, second, third = pcall(original, screen, ...)
+            data.landmarks = previous
+            if not called then error(first, 0) end
+            return first, second, third
+        end
+
+        state.nestBridge.installed = true
+        mod.log:info("Expanded Species installed Gold Pokedex nest landmark routing")
+        return true
+    end
+
     local function buildMon(speciesId, level, opts)
         opts = opts or {}
         local game = liveGame()
@@ -2296,6 +2364,7 @@ return function(mod)
         customGen2PokedexRows = true,
         customPokemonForms = true,
         goldFormScreenAdapters = true,
+        goldNestScreenAdapter = true,
         extendedEncounterWeights = true,
         hiddenMissingSpeciesStorage = true,
         checkpointContentProfiles = true,
@@ -2820,6 +2889,10 @@ return function(mod)
         return copy(state.formBridge)
     end
 
+    function mod.exports.nestScreenStatus()
+        return copy(state.nestBridge)
+    end
+
     function mod.exports.missingCount()
         local game = liveGame()
         local guardian = game and game.save and saveGuardian(game.save)
@@ -2940,6 +3013,7 @@ return function(mod)
             missing = missing,
             checkpoint = mod.exports.checkpointProfile(),
             formScreens = mod.exports.formScreenStatus(),
+            nestScreen = mod.exports.nestScreenStatus(),
             errors = {},
             warnings = {},
         }
@@ -3019,6 +3093,8 @@ return function(mod)
             ("Hidden missing Pokemon: %d"):format(#report.missing),
             ("Gold form screen bridge: %s")
                 :format(report.formScreens.installed and "installed" or "unavailable"),
+            ("Gold Pokedex nest bridge: %s")
+                :format(report.nestScreen.installed and "installed" or "unavailable"),
             report.ok and "STATUS: COMPATIBLE" or "STATUS: NEEDS ATTENTION",
         }
         for _, message in ipairs(report.errors) do
@@ -3203,6 +3279,7 @@ return function(mod)
         local game = context and context.game or mod.game
         reconcile(game)
         installFormBridge()
+        installNestBridge()
     end)
 
     mod.log:info("Expanded Species %s loaded", VERSION)

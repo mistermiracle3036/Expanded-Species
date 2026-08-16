@@ -16,7 +16,7 @@ checkpoint profiles, and compatibility reports.
 
 ## For players
 
-Install `expanded_species-0.6.1.zip` like any other gen1recomp mod, then install
+Install `expanded_species-0.6.2.zip` like any other gen1recomp mod, then install
 a species pack that declares Expanded Species as a dependency. The framework
 does not add Pokemon by itself.
 
@@ -29,7 +29,7 @@ Declare this dependency in your manifest:
 
 ```json
 "dependencies": [
-  "expanded_species@>=0.6.1 <2.0.0"
+  "expanded_species@>=0.6.2 <2.0.0"
 ]
 ```
 
@@ -132,6 +132,11 @@ framework.exports.addGrassEncounter(mod, {
 The vanilla pool has weight 100. One custom entry with weight 1 therefore has
 a 1/101 chance when an encounter triggers; it does not change how often steps
 trigger battles.
+
+Version 0.6.2 also repairs Gold 0.1.94's Pokédex AREA renderer so grass and
+water placements display their flashing nest marker and route name. The
+encounter lookup remains Gold's native lookup; the compatibility bridge only
+routes the returned landmark index through Gold's actual landmark registry.
 
 Gold 0.1.94 also has safe helpers for fishing, active swarm tables, and the
 Bug-Catching Contest:
@@ -283,6 +288,10 @@ mod.log:info("\n%s", text)
 assert(report.ok, "Custom species pack needs attention")
 ```
 
+The report includes both `formScreens` and `nestScreen` adapter health. A tool
+can query the nest adapter directly with `api.nestScreenStatus()` after
+`game.ready`.
+
 Checkpoint tools can store `api.checkpointProfile()` beside a persistent
 checkpoint and call `api.compareCheckpointProfile(savedProfile)` before asking
 the engine to restore it. Expanded Species also re-runs Save Guardian after a
@@ -322,8 +331,8 @@ disable/update guard is still the complete long-term solution.
   instead.
 - Gold 0.1.94 does not expose safe Headbutt, Rock Smash, extra-roamer,
   per-form-palette/cry, native all-screen form routing, or checkpoint preflight
-  seams. Expanded Species 0.6.1 supplies a narrowly scoped Gold screen bridge
-  for its own cosmetic forms.
+  seams. Expanded Species 0.6.2 supplies narrowly scoped Gold screen bridges
+  for its own cosmetic forms and the Pokédex nest landmark lookup.
 - Link battles require both players to have matching framework and species-pack
   data. Species packs should set `"affects_link": true`.
 - Keep Expanded Species enabled so its missing-pack guardian can run.

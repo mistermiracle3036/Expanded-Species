@@ -1,6 +1,6 @@
 # Expanded Species author API
 
-API version: `1` (0.3 through 0.6.1 additions are backward-compatible capabilities)
+API version: `1` (0.3 through 0.6.2 additions are backward-compatible capabilities)
 
 ## Contract
 
@@ -216,7 +216,7 @@ local report = expanded.exports.diagnose("MY_PACK_AURORIX")
 allocated index and Dex number. `diagnose` checks the merged record, both battle
 sprites, allocation, Dex row, icon, palette, cry, and evolution targets.
 
-The exported `api_version` remains `1` because 0.3 through 0.6.1 only add methods;
+The exported `api_version` remains `1` because 0.3 through 0.6.2 only add methods;
 existing
 species packs keep working unchanged. This is Expanded Species' provider API,
 not the separate gen1recomp `"api": 2` value in `manifest.json`.
@@ -238,7 +238,7 @@ assert(required, capabilityError)
 Use this dependency range in the pack manifest:
 
 ```json
-"expanded_species@>=0.6.1 <2.0.0"
+"expanded_species@>=0.6.2 <2.0.0"
 ```
 
 Expanded Species reserves `2.0.0` for a breaking provider API. Compatible
@@ -391,6 +391,20 @@ The helper records grass and water appends through the calling pack's official
 encounter registry. This preserves ownership/unload behavior and makes the
 extra rows visible to registry consumers such as the Pokedex area listing. It
 also uses the official `encounter.roll` hook for selection.
+
+Gold 0.1.94's nest finder already reads the merged `gen2Encounters` tables, but
+its AREA renderer looks up the resulting index in the wrong landmark field.
+Expanded Species 0.6.2 supplies the correct `gen2Landmarks` table only while
+that screen draws. Author tools can verify the adapter after `game.ready`:
+
+```lua
+local status = expanded.exports.nestScreenStatus()
+assert(status.installed, status.error or "Gold nest screen bridge unavailable")
+```
+
+The `goldNestScreen` capability advertises this correction. It affects grass
+and swimming nests only, matching Gold's original rules; fishing, Headbutt,
+Rock Smash, Bug Contest and swarm-only placements do not create Pokédex nests.
 
 ### Swarm-only grass and water
 
@@ -809,9 +823,9 @@ assert(report.ok, "Expanded Species compatibility report needs attention")
 
 `compatibilityReport(mod)` returns the same structured data: framework and
 engine versions, the pack's species diagnoses, encounter placements, vanilla
-trainer patches, hidden missing-Pokemon summaries, and the current content
-profile. Run it after `game.ready` because allocation and merged registries do
-not exist earlier.
+trainer patches, hidden missing-Pokemon summaries, form/nest screen adapter
+health, and the current content profile. Run it after `game.ready` because
+allocation and merged registries do not exist earlier.
 
 A checkpoint tool can store a deterministic sidecar beside its checkpoint and
 compare it before offering a restore:

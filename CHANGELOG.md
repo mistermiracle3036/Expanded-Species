@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.2] — 2026-08-16
+
+### Fixed
+
+- Restored Gold Pokédex AREA-page nest markers and route names for custom and
+  vanilla grass/water encounters. Gold 0.1.94 finds the correct nests but its
+  renderer reads the Gen 1 landmark field instead of `gen2Landmarks`.
+- Cleared an AREA screen's stale empty landmark cache when the corrected Gold
+  registry becomes available, including after a mod reload.
+
+### Compatibility
+
+- Added the `goldNestScreen` capability and `nestScreenStatus()` diagnostic.
+  The compatibility alias exists only for the duration of the AREA draw and is
+  restored even if that draw errors. It stays dormant when the engine supplies
+  a native compatible landmark table.
+- Kept the underlying one-line Gold renderer correction on the upstream engine
+  request list; this bridge can be removed after the engine owns the fix.
+
 ## [0.6.1] — 2026-08-15
 
 ### Fixed

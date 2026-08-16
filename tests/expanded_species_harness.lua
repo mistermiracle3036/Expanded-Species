@@ -79,6 +79,7 @@ expect(framework.exports.supports("extendedFishing"), "fishing capability")
 expect(framework.exports.supports("extendedBugContest"), "Bug Contest capability")
 expect(framework.exports.supports("cosmeticForms"), "forms capability")
 expect(framework.exports.supports("goldFormScreens"), "Gold form screens capability")
+expect(framework.exports.supports("goldNestScreen"), "Gold nest screen capability")
 expect(framework.exports.supports("checkpointProfiles"), "checkpoint capability")
 expect(framework.exports.supports("compatibilityReports"), "report capability")
 expect(type(readyCallback) == "function", "game.ready callback was not registered")
@@ -683,6 +684,13 @@ local data = {
         newOrder = newOrder,
         alphabeticalOrder = {},
     },
+    gen2Landmarks = {
+        landmarks = {
+            ROUTE_29 = { id = "ROUTE_29", index = 2, name = "ROUTE 29",
+                x = 24, y = 80 },
+        },
+        order = { [3] = "ROUTE_29" },
+    },
     gen2Icons = {
         icons = {
             MON_ICON = {
@@ -763,6 +771,21 @@ package.loaded["src.core.Strings"] = {
         return source
     end,
 }
+
+local nestProbeCalls = 0
+if arg and arg[1] then
+    local PokedexMenu = require("src.ui.gen2.PokedexMenu")
+    PokedexMenu.drawArea = function(screen)
+        nestProbeCalls = nestProbeCalls + 1
+        expectEqual(screen.data.landmarks, screen.data.gen2Landmarks,
+            "nest renderer receives Gold's landmark registry")
+        expectEqual(screen.landmarkByIndex, nil,
+            "stale landmark cache is cleared before the corrected draw")
+        if screen.failNestProbe then error("nest probe failure") end
+        screen.landmarkByIndex = { [2] = screen.data.landmarks.landmarks.ROUTE_29 }
+        return "nest-drawn"
+    end
+end
 
 readyCallback({ game = game })
 
@@ -864,6 +887,30 @@ if arg and arg[1] then
             .. tostring(status.errors[adapter]))
     end
     expect(next(status.errors) == nil, "Gold form bridge has no missing adapters")
+
+    local nestStatus = framework.exports.nestScreenStatus()
+    expect(nestStatus.installed, "Gold Pokedex nest bridge installs: "
+        .. tostring(nestStatus.error))
+    local PokedexMenu = require("src.ui.gen2.PokedexMenu")
+    local nestScreen = {
+        data = data,
+        landmarkByIndex = { stale = true },
+    }
+    expectEqual(PokedexMenu.drawArea(nestScreen), "nest-drawn",
+        "Gold Pokedex nest draw completes through corrected landmarks")
+    expectEqual(nestProbeCalls, 1, "corrected nest renderer is called once")
+    expectEqual(data.landmarks, nil,
+        "temporary landmark compatibility alias is removed after drawing")
+    expectEqual(nestScreen.landmarkByIndex[2].name, "ROUTE 29",
+        "corrected nest renderer can resolve Route 29")
+
+    nestScreen.failNestProbe = true
+    nestScreen.landmarkByIndex = { stale = true }
+    nestScreen._expandedSpeciesNestLandmarks = nil
+    local nestOk = pcall(PokedexMenu.drawArea, nestScreen)
+    expect(not nestOk, "nest renderer errors still propagate")
+    expectEqual(data.landmarks, nil,
+        "temporary landmark alias is restored after a draw error")
 
     local function screen(moduleName, extra)
         local module = require(moduleName)
