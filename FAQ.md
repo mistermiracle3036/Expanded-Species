@@ -129,7 +129,8 @@ conflicts reported by `diagnoseTrainerPatches`.
 
 ## How do I test evolutions and shiny palettes quickly?
 
-Battle Spawner 0.4.0 adds `ACTION = GIVE MON` and `FORM = SHINY`. Give the mon
-to the party or box, then level it, use its evolution item, save/reload, and
-send it into battle to check the back sprite. Its normal battle action remains
+Get the individual you need directly into the party or a box rather than
+hunting for it — most developer spawn tools can hand over a specific species,
+level and shiny state. Then level it, use its evolution item, save and reload,
+and send it into battle to check the back sprite. Starting a battle with it is
 the fastest front-sprite and catch test.

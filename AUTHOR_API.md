@@ -149,9 +149,10 @@ An unknown fallback safely falls through to Ditto. If both fields are omitted,
 Ditto is also the default. A supplied custom `palette` always wins over
 `paletteFallback`.
 
-Test the normal palette by spawning the species through Battle Spawner. Test
-the shiny palette with an individual that actually has Gold's shiny DVs; merely
-choosing shiny colors in the definition does not make every individual shiny.
+Test the normal palette by getting the species into a battle at a known level.
+Test the shiny palette with an individual that actually has Gold's shiny DVs;
+merely choosing shiny colors in the definition does not make every individual
+shiny.
 
 ## Custom cries
 
@@ -959,16 +960,18 @@ remaining engine boundaries are not author-facing slots that should be patched.
 
 ## Pack testing checklist
 
-Test with Expanded Species and Battle Spawner enabled, then fully quit and
-relaunch Gold:
+Test with Expanded Species and your pack enabled, then fully quit and relaunch
+Gold. Several steps need a specific Pokemon on demand — a developer spawn tool
+makes that quick, but any route that reliably produces the individual you want
+works just as well:
 
 1. Spawn the species and confirm its front sprite, palette, name, level and cry.
 2. Catch it, lead the party with it, and start another battle to confirm its
    back sprite and player-side cry.
 3. Open its party summary and Pokedex entry; confirm the cry plays from both.
 4. Verify its stats, moves, party/box icon, normal palette and shiny palette.
-5. Use Battle Spawner 0.4.0 `ACTION = GIVE MON` to place normal and shiny
-   individuals, then test back sprites and every declared evolution method.
+5. Place a normal individual and a shiny one directly into the party or a box,
+   then test back sprites and every declared evolution method.
 6. Deposit and withdraw it, save, fully quit, and reload the native save.
 7. Test at least one allocation above #255, either by providing five species or
    by testing alongside another pack.
