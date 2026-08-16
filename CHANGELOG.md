@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.6.1] — 2026-08-15
+
+### Fixed
+
+- Routed Expanded Species cosmetic forms through Gold 0.1.94's PC preview,
+  Summary, evolution, NPC-trade animation and icon, Hall of Fame, egg-hatch
+  reveal, and Cianwood Photo Studio screens. These screens previously read the
+  species' base sprite fields without calling the engine's live sprite hook.
+- Made the Pokedex use a species' `defaultForm`, since a Dex entry has no
+  individual Pokemon record from which to select a form.
+- Preserved `expandedForm` in Gold's projected NPC-trade animation and Hall of
+  Fame records, and added `form` to custom NPC trade definitions.
+- Bypassed legacy palette remapping for `trueColor` form art on the bridged
+  screens while retaining Gold's blackout silhouette during evolution.
+
+### Compatibility
+
+- Added the `goldFormScreens` capability and `formScreenStatus()` diagnostic.
+  The bridge only intercepts Pokemon that actually select an Expanded Species
+  form; vanilla Pokemon and custom species without forms stay on Gold's
+  original rendering paths.
+- Kept the upstream request for native all-screen `Sprites.path` routing and
+  per-individual palette/cry contexts. The 0.6.1 bridge is isolated behind the
+  already-declared `engine_internals` permission.
+
 ## [0.6.0] — 2026-08-15
 
 ### Added

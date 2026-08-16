@@ -1,6 +1,6 @@
 # Expanded Species author API
 
-API version: `1` (0.3 through 0.6 additions are backward-compatible capabilities)
+API version: `1` (0.3 through 0.6.1 additions are backward-compatible capabilities)
 
 ## Contract
 
@@ -216,7 +216,7 @@ local report = expanded.exports.diagnose("MY_PACK_AURORIX")
 allocated index and Dex number. `diagnose` checks the merged record, both battle
 sprites, allocation, Dex row, icon, palette, cry, and evolution targets.
 
-The exported `api_version` remains `1` because 0.3 through 0.6 only add methods;
+The exported `api_version` remains `1` because 0.3 through 0.6.1 only add methods;
 existing
 species packs keep working unchanged. This is Expanded Species' provider API,
 not the separate gen1recomp `"api": 2` value in `manifest.json`.
@@ -238,7 +238,7 @@ assert(required, capabilityError)
 Use this dependency range in the pack manifest:
 
 ```json
-"expanded_species@>=0.6.0 <2.0.0"
+"expanded_species@>=0.6.1 <2.0.0"
 ```
 
 Expanded Species reserves `2.0.0` for a breaking provider API. Compatible
@@ -664,6 +664,7 @@ local row = expanded.exports.registerTrade(mod, {
   gender = "either",           -- either, male, or female
   dvs = { attack = 9, defense = 8, speed = 8, special = 8 },
   item = "AMULET_COIN",
+  form = "winter",             -- optional form for the received Pokemon
 })
 ```
 
@@ -736,13 +737,35 @@ species `defaultForm`, or to base art when no default is declared. Gift,
 stationary, custom-trainer, vanilla-trainer-patch, `givePokemon`, and
 `startWildBattle` options all accept `form`.
 
-On Gold 0.1.94, per-individual form routing works in battle front/back art, the
-Summary screen, and party icons. The PC Box, Pokedex, evolution, trade, and
-Hall of Fame screens still read the species' base sprite fields directly, so
-they show base art. Gold's palette and cry selectors also receive only a
-species ID, not the individual Pokemon. A form cannot safely select its own
-palette or cry yet; use `trueColor = true` form PNGs when different form colors
-matter. These remaining form seams are tracked for an upstream engine request.
+On Gold 0.1.94, per-individual form routing works in battle front/back art,
+Summary, the selected PC preview, evolution, NPC-trade art and icon, Hall of
+Fame front/back art, the egg-hatch reveal, Cianwood Photo Studio, and party
+icons. Expanded Species also copies `expandedForm` into the temporary trade
+animation record and the persistent Hall of Fame roster record. The Pokedex
+has no individual Pokemon record, so it uses the species' `defaultForm`; it
+shows base art when no default is declared.
+
+Gold's palette and cry selectors still receive only a species ID, not the
+individual Pokemon. A form cannot select its own `palette` table or cry yet.
+However, `trueColor = true` form PNGs bypass palette remapping on all bridged
+screens, so authored colors display correctly. Evolution retains Gold's
+blackout silhouette while its flash phase is active.
+
+The bridge uses the framework's declared `engine_internals` permission because
+these Gold 0.1.94 screens do not yet call the engine's official `Sprites.path`
+resolver. It activates only when the displayed Pokemon selects an Expanded
+Species form; vanilla Pokemon and custom species without forms stay on their
+original Gold paths. Developer tools can inspect installation health after
+`game.ready`:
+
+```lua
+local status = expanded.exports.formScreenStatus()
+assert(status.installed and next(status.errors) == nil,
+  "Gold form screen bridge did not install completely")
+```
+
+The `goldFormScreens` capability advertises this coverage. Native all-screen
+routing and per-individual palette/cry contexts remain tracked for upstream.
 
 ## Localization
 
@@ -858,8 +881,9 @@ Pokedex seen/caught state, and link fingerprints use string species IDs.
 
 Gold 0.1.94 also lacks safe registry-based seams for Headbutt, Rock Smash,
 additional roaming slots, checkpoint pre-restore validation, per-individual
-form palettes/cries, and form sprites in every legacy screen. These are
-explicit engine boundaries, not author-facing slots that should be patched.
+form palettes/cries, and native form routing in every legacy screen. Expanded
+Species bridges the confirmed Gold form screens for its own records, while the
+remaining engine boundaries are not author-facing slots that should be patched.
 
 ## Pack testing checklist
 
@@ -892,9 +916,10 @@ relaunch Gold:
     a save when it is itself disabled or unable to load.
 13. For link play, use identical framework and species-pack versions on both
    devices and declare `"affects_link": true` in the species-pack manifest.
-14. Test each cosmetic form in battle, Summary, and party icons. Also inspect
-    PC Box, Pokedex, evolution, trade, and Hall of Fame so the documented
-    base-art fallback is not mistaken for missing assets.
+14. Test each cosmetic form in battle, Summary, party icons, selected PC
+    preview, evolution, NPC trade, Hall of Fame, egg hatching, and Photo Studio.
+    Confirm the Pokedex uses `defaultForm`, or base art when none is declared.
+    For `trueColor` forms, verify the authored colors are not palette-remapped.
 15. Save a checkpoint profile, change the enabled species-pack set, and verify
     the comparison reports added or missing IDs before restoring. Then run and
     save the pack's formatted compatibility report.

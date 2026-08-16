@@ -78,6 +78,7 @@ expect(framework.exports.supports("vanillaTrainerPatches"),
 expect(framework.exports.supports("extendedFishing"), "fishing capability")
 expect(framework.exports.supports("extendedBugContest"), "Bug Contest capability")
 expect(framework.exports.supports("cosmeticForms"), "forms capability")
+expect(framework.exports.supports("goldFormScreens"), "Gold form screens capability")
 expect(framework.exports.supports("checkpointProfiles"), "checkpoint capability")
 expect(framework.exports.supports("compatibilityReports"), "report capability")
 expect(type(readyCallback) == "function", "game.ready callback was not registered")
@@ -277,6 +278,7 @@ for position, speciesId in ipairs(ids) do
                 trueColor = true,
             },
         }
+        definition.defaultForm = "winter"
     end
     definitions[#definitions + 1] = definition
 end
@@ -372,9 +374,10 @@ local trainerRow, trainerClass = framework.exports.registerTrainerEncounter(prov
 })
 local tradeRow = framework.exports.registerTrade(provider, {
     id = "alpha_for_beta",
-    give = "TEST_PACK_ALPHA",
-    get = "TEST_PACK_BETA",
-    nickname = "BETATEST",
+    give = "TEST_PACK_BETA",
+    get = "TEST_PACK_ALPHA",
+    nickname = "ALPHATEST",
+    form = "winter",
     shiny = true,
     otName = "QA",
     otId = 3036,
@@ -554,6 +557,35 @@ expectEqual(nextCalls, 7, "encounter hook must preserve the wrapped roll")
 if arg and arg[1] then
     local engineRoot = arg[1]:gsub("\\", "/"):gsub("/$", "")
     package.path = engineRoot .. "/?.lua;" .. engineRoot .. "/?/init.lua;" .. package.path
+    package.loaded["src.pokemon.Sprites"] = {
+        path = function(data, species, side, opts)
+            opts = opts or {}
+            local def = data and data.pokemon and data.pokemon[species]
+            local path = def and (side == "back" and def.spriteBack or def.spriteFront)
+            local context = {
+                species = species,
+                side = side == "back" and "back" or "front",
+                kind = opts.kind,
+                mon = opts.mon,
+                trueColor = def and def.trueColor == true or false,
+                data = data,
+            }
+            if path then
+                path = spriteHook(function(value) return value end, path, context)
+            end
+            return path, context.trueColor
+        end,
+        iconPath = function(data, mon, path, opts)
+            return iconHook(function(value) return value end, path, {
+                species = mon and mon.species,
+                mon = mon,
+                name = opts and opts.name,
+                data = data,
+                kind = "icon",
+            })
+        end,
+        playerPic = function(path) return path, false end,
+    }
     local Schemas = require("src.mods.Schemas")
     local sample = registered.TEST_PACK_ALPHA
     local ok, schemaError = Schemas.check(
@@ -719,6 +751,8 @@ function game.world:showText(body)
 end
 framework.game = game
 package.loaded["src.core.Strings"] = {
+    source = function(source) return source end,
+    get = function(source) return source end,
     lookup = function(source, context)
         if context == "expanded_species.TEST_PACK_ALPHA.name" then
             return "ALPHA LOCAL"
@@ -812,6 +846,111 @@ expect(data.gen2Palettes.trainers[trainerClass.id] ~= nil,
     "trainer palette fallback")
 expectEqual(#game.world.eventTables.trades, 7,
     "custom trade appends after six vanilla trades")
+expectEqual(game.world.eventTables.trades[7].expandedSpeciesForm, "winter",
+    "custom NPC trade row keeps the received cosmetic form")
+
+if arg and arg[1] then
+    framework.exports.setForm(formMon, "winter")
+    local frontPath = "mods/test_species_pack/assets/alpha_winter_front.png"
+    local backPath = "mods/test_species_pack/assets/alpha_winter_back.png"
+    local status = framework.exports.formScreenStatus()
+    expect(status.installed, "Gold form screen bridge installs")
+    for _, adapter in ipairs({
+        "pc.sprite", "summary.sprite", "pokedex.sprite", "evolution.sprite",
+        "trade.records", "trade.receivedForm", "trade.sprite",
+        "hof.records", "hof.sprite", "eggHatch.sprite", "photoStudio.sprite",
+    }) do
+        expect(status.adapters[adapter], "Gold form adapter " .. adapter .. ": "
+            .. tostring(status.errors[adapter]))
+    end
+    expect(next(status.errors) == nil, "Gold form bridge has no missing adapters")
+
+    local function screen(moduleName, extra)
+        local module = require(moduleName)
+        extra = extra or {}
+        extra.game = extra.game or game
+        extra.data = extra.data or data
+        extra.pokemon = extra.pokemon or pokemon
+        extra.palettes = extra.palettes or data.gen2Palettes
+        extra.picCache = extra.picCache or {}
+        return setmetatable(extra, module)
+    end
+    local function expectCached(view, path, message)
+        expect(view.picCache[path] ~= nil, message)
+    end
+
+    local pc = screen("src.ui.gen2.BoxMenu")
+    pc:picFor(formMon)
+    expectCached(pc, frontPath, "PC preview resolves individual form art")
+
+    local summary = screen("src.ui.gen2.SummaryMenu", { mon = formMon })
+    summary:picFor(formMon)
+    expectCached(summary, frontPath, "Gold Summary resolves individual form art")
+
+    local pokedex = screen("src.ui.gen2.PokedexMenu", { save = game.save })
+    pokedex:picFor("TEST_PACK_ALPHA")
+    expectCached(pokedex, frontPath, "Pokedex resolves the species default form")
+
+    local evolution = screen("src.ui.gen2.EvolutionAnim", {
+        mon = formMon, oldSpecies = "TEST_PACK_ALPHA",
+        newSpecies = "TEST_PACK_ALPHA", blackout = false,
+    })
+    evolution:pic("TEST_PACK_ALPHA")
+    expectCached(evolution, frontPath, "evolution resolves individual form art")
+    expectEqual(evolution:picColors("TEST_PACK_ALPHA"), nil,
+        "evolution bypasses palette remapping for true-color form art")
+
+    local TradeRecords = require("src.core.gen2.TradeAnim")
+    local giveRecord, getRecord = TradeRecords.records(data, game.save,
+        { get = "TEST_PACK_ALPHA" }, formMon, formMon)
+    expectEqual(giveRecord.expandedForm, "winter",
+        "trade animation preserves the outgoing form")
+    expectEqual(getRecord.expandedForm, "winter",
+        "trade animation preserves the received form")
+    local trade = screen("src.ui.gen2.TradeAnim")
+    trade:pic(getRecord)
+    expectCached(trade, frontPath, "trade animation resolves individual form art")
+
+    local NpcTrade = require("src.core.gen2.NpcTrade")
+    local tradeSave = {
+        party = { { species = "TEST_PACK_BETA", level = 12,
+            dvs = { attack = 9, defense = 8, speed = 8, special = 8 } } },
+    }
+    local _, received = NpcTrade.perform(data, tradeSave, {
+        give = "TEST_PACK_BETA", get = "TEST_PACK_ALPHA",
+        dvs = { 0x98, 0x88 }, nickname = "ALPHATEST",
+        otName = "QA", otId = 3036, expandedSpeciesForm = "winter",
+    }, 1)
+    expect(received ~= nil, "custom NPC trade builds the received Pokemon")
+    expectEqual(received.expandedForm, "winter",
+        "custom NPC trade applies its declared form")
+
+    local HallRecords = require("src.core.gen2.HallOfFame")
+    local hallEntry = HallRecords.buildParty({
+        hallOfFame = { count = 1, teams = {} },
+    }, { formMon })
+    expectEqual(hallEntry.mons[1].expandedForm, "winter",
+        "Hall of Fame records persist cosmetic forms")
+    local hall = screen("src.ui.gen2.HallOfFame")
+    hall:monPic(hallEntry.mons[1], false)
+    hall:monPic(hallEntry.mons[1], true)
+    expectCached(hall, frontPath, "Hall of Fame resolves front form art")
+    expectCached(hall, backPath, "Hall of Fame resolves back form art")
+    expectEqual(hall:monColors(hallEntry.mons[1]), nil,
+        "Hall of Fame bypasses palette remapping for true-color form art")
+
+    local hatch = screen("src.ui.gen2.EggHatchAnim", {
+        mon = formMon, species = "TEST_PACK_ALPHA", showMon = true,
+    })
+    hatch:pic()
+    expectCached(hatch, frontPath, "egg hatch resolves individual form art")
+    expectEqual(hatch:picColors(), nil,
+        "egg hatch bypasses palette remapping for true-color form art")
+
+    local photo = screen("src.ui.gen2.PhotoStudio", { mon = formMon })
+    photo:picFor("TEST_PACK_ALPHA")
+    expectCached(photo, frontPath, "Photo Studio resolves individual form art")
+end
 
 local checkpointProfile = framework.exports.checkpointProfile()
 expectEqual(checkpointProfile.format, 1, "checkpoint profile format")

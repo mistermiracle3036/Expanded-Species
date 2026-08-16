@@ -16,7 +16,7 @@ checkpoint profiles, and compatibility reports.
 
 ## For players
 
-Install `expanded_species-0.6.0.zip` like any other gen1recomp mod, then install
+Install `expanded_species-0.6.1.zip` like any other gen1recomp mod, then install
 a species pack that declares Expanded Species as a dependency. The framework
 does not add Pokemon by itself.
 
@@ -29,7 +29,7 @@ Declare this dependency in your manifest:
 
 ```json
 "dependencies": [
-  "expanded_species@>=0.6.0 <2.0.0"
+  "expanded_species@>=0.6.1 <2.0.0"
 ]
 ```
 
@@ -233,11 +233,14 @@ forms = {
 ```
 
 Pass `form = "winter"` to a gift, stationary encounter, custom trainer member,
-or vanilla-trainer insertion, or call `api.setForm(mon, "winter")`. On Gold
-0.1.94, per-mon forms are routed through battles, the summary screen, and party
-icons. The PC, trades, evolution, Hall of Fame, and Pokedex still show the
-species' default art. Per-form palettes and cries are not yet engine-supported;
-use `trueColor = true` form sprites when a form needs different colors.
+vanilla-trainer insertion, or custom NPC trade, or call
+`api.setForm(mon, "winter")`. On Gold 0.1.94, Expanded Species routes the live
+form through battles, Summary, the selected PC preview, evolution, NPC-trade
+art and icons, Hall of Fame, egg hatching, Cianwood Photo Studio, and party
+icons. The Pokedex has no individual Pokemon record, so it displays the
+species' `defaultForm` when one is declared. True-color form art bypasses the
+legacy screens' palette remapping. Per-form palette tables and cries are not
+yet engine-supported.
 
 ### Palettes
 
@@ -318,7 +321,9 @@ disable/update guard is still the complete long-term solution.
   virtual species. Use the registry, trainer-decoration, and script helpers
   instead.
 - Gold 0.1.94 does not expose safe Headbutt, Rock Smash, extra-roamer,
-  per-form-palette/cry, complete form-screen, or checkpoint preflight seams.
+  per-form-palette/cry, native all-screen form routing, or checkpoint preflight
+  seams. Expanded Species 0.6.1 supplies a narrowly scoped Gold screen bridge
+  for its own cosmetic forms.
 - Link battles require both players to have matching framework and species-pack
   data. Species packs should set `"affects_link": true`.
 - Keep Expanded Species enabled so its missing-pack guardian can run.

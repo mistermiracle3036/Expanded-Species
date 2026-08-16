@@ -1,4 +1,4 @@
-local VERSION = "0.6.0"
+local VERSION = "0.6.1"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
@@ -45,6 +45,7 @@ local CAPABILITIES = {
     extendedGrass = true,
     extendedSwarms = true,
     extendedWater = true,
+    goldFormScreens = true,
     gifts = true,
     metadataQueries = true,
     localizedSpecies = true,
@@ -579,6 +580,11 @@ return function(mod)
         trainerPatches = {},
         trainerPatchWarnings = {},
         guardianNotice = nil,
+        formBridge = {
+            installed = false,
+            adapters = {},
+            errors = {},
+        },
     }
 
     local function providerKey(providerMod, kind, id)
@@ -1070,14 +1076,26 @@ return function(mod)
         return wanted and copy(SHINY_DVS) or nil
     end
 
-    local function formDefinition(speciesId, formId)
+    local function formDefinition(speciesId, formId, data)
         if type(formId) ~= "string" or formId == "" then return nil end
         local game = liveGame()
-        local definition = game and game.data and game.data.pokemon
-            and game.data.pokemon[speciesId]
+        local pokemon = data and data.pokemon
+            or (game and game.data and game.data.pokemon)
+        local definition = pokemon and pokemon[speciesId]
         local marker = markerFor(definition)
         return marker and type(marker.forms) == "table" and marker.forms[formId]
             or nil
+    end
+
+    local function formSelection(data, speciesId, mon)
+        local definition = data and data.pokemon and data.pokemon[speciesId]
+        local marker = markerFor(definition)
+        if not (marker and type(marker.forms) == "table") then return nil end
+        local formId = type(mon) == "table" and mon.expandedForm or nil
+        formId = formId or marker.defaultForm
+        local form = formId and marker.forms[formId] or nil
+        if type(form) ~= "table" then return nil end
+        return form, formId, definition
     end
 
     local function setMonForm(mon, formId)
@@ -1094,6 +1112,397 @@ return function(mod)
                 :format(formId, mon.species))
         mon.expandedForm = formId
         return mon
+    end
+
+    local function formBridgeActive()
+        if type(mod.find) ~= "function" then return true end
+        return mod.find(mod.id) ~= nil
+    end
+
+    local function screenData(screen)
+        if type(screen) ~= "table" then return nil end
+        return screen.data or (screen.game and screen.game.data) or nil
+    end
+
+    local function resolvedFormSprite(data, speciesId, side, mon, kind)
+        local form = formSelection(data, speciesId, mon)
+        if not form then return nil, false end
+        local ok, Sprites = pcall(require, "src.pokemon.Sprites")
+        if not ok or type(Sprites) ~= "table" or type(Sprites.path) ~= "function" then
+            return nil, false
+        end
+        local path = Sprites.path(data, speciesId, side, {
+            mon = mon,
+            kind = kind,
+        })
+        if type(path) ~= "string" or path == "" then return nil, false end
+        return path, true
+    end
+
+    local function formUsesTrueColor(data, speciesId, mon)
+        local form, _, definition = formSelection(data, speciesId, mon)
+        if not form then return false end
+        if form.trueColor ~= nil then return form.trueColor == true end
+        return definition and definition.trueColor == true or false
+    end
+
+    local function withSpeciesPath(data, speciesId, side, path, callback)
+        local definition = data and data.pokemon and data.pokemon[speciesId]
+        if not definition then return callback() end
+        local field = side == "back" and "spriteBack" or "spriteFront"
+        local previous = definition[field]
+        definition[field] = path
+        local ok, first, second, third = pcall(callback)
+        definition[field] = previous
+        if not ok then error(first, 0) end
+        return first, second, third
+    end
+
+    local function withoutScreenPalettes(screen, callback, clearDexPalette)
+        local previous = screen.palettes
+        local gfx = clearDexPalette and screen.gfx or nil
+        local question = gfx and gfx.questionMarkPalette
+        screen.palettes = nil
+        if gfx then gfx.questionMarkPalette = nil end
+        local ok, first, second, third = pcall(callback)
+        screen.palettes = previous
+        if gfx then gfx.questionMarkPalette = question end
+        if not ok then error(first, 0) end
+        return first, second, third
+    end
+
+    local function bridgeError(key, message)
+        state.formBridge.errors[key] = message
+        mod.log:warn("Expanded Species form bridge: %s", message)
+    end
+
+    local function patchBridgeMethod(moduleName, methodName, key, build)
+        local ok, module = pcall(require, moduleName)
+        if not ok or type(module) ~= "table" then
+            bridgeError(key, "could not load " .. moduleName .. ": "
+                .. tostring(module))
+            return false
+        end
+        module._expandedSpeciesFormOriginals =
+            module._expandedSpeciesFormOriginals or {}
+        local originals = module._expandedSpeciesFormOriginals
+        if originals[methodName] == nil then originals[methodName] = module[methodName] end
+        local original = originals[methodName]
+        if type(original) ~= "function" then
+            bridgeError(key, moduleName .. "." .. methodName .. " is unavailable")
+            return false
+        end
+        module[methodName] = build(original, module)
+        state.formBridge.adapters[key] = true
+        state.formBridge.errors[key] = nil
+        return true
+    end
+
+    local function installFormBridge()
+        state.formBridge.adapters = {}
+        state.formBridge.errors = {}
+
+        patchBridgeMethod("src.ui.gen2.BoxMenu", "picFor", "pc.sprite",
+            function(original)
+                return function(screen, mon)
+                    if not formBridgeActive() then return original(screen, mon) end
+                    local data = screenData(screen)
+                    local speciesId = mon and mon.species
+                    local path, handled = resolvedFormSprite(data, speciesId,
+                        "front", mon, "pc")
+                    if not handled then return original(screen, mon) end
+                    return withSpeciesPath(data, speciesId, "front", path,
+                        function() return original(screen, mon) end)
+                end
+            end)
+        patchBridgeMethod("src.ui.gen2.BoxMenu", "drawPic", "pc.trueColor",
+            function(original)
+                return function(screen, mon)
+                    local data = screenData(screen)
+                    if not formBridgeActive()
+                        or not formUsesTrueColor(data, mon and mon.species, mon) then
+                        return original(screen, mon)
+                    end
+                    return withoutScreenPalettes(screen,
+                        function() return original(screen, mon) end)
+                end
+            end)
+
+        patchBridgeMethod("src.ui.gen2.SummaryMenu", "picFor", "summary.sprite",
+            function(original)
+                return function(screen, mon)
+                    if not formBridgeActive() then return original(screen, mon) end
+                    local data = screenData(screen)
+                    local speciesId = mon and mon.species
+                    local path, handled = resolvedFormSprite(data, speciesId,
+                        "front", mon, "summary")
+                    if not handled then return original(screen, mon) end
+                    return withSpeciesPath(data, speciesId, "front", path,
+                        function() return original(screen, mon) end)
+                end
+            end)
+        patchBridgeMethod("src.ui.gen2.SummaryMenu", "drawPic",
+            "summary.trueColor", function(original)
+                return function(screen)
+                    local mon = screen.mon
+                    local data = screenData(screen)
+                    if not formBridgeActive()
+                        or not formUsesTrueColor(data, mon and mon.species, mon) then
+                        return original(screen)
+                    end
+                    return withoutScreenPalettes(screen,
+                        function() return original(screen) end)
+                end
+            end)
+
+        patchBridgeMethod("src.ui.gen2.PokedexMenu", "picFor", "pokedex.sprite",
+            function(original)
+                return function(screen, speciesId)
+                    if not formBridgeActive() then return original(screen, speciesId) end
+                    local data = screenData(screen)
+                    local path, handled = resolvedFormSprite(data, speciesId,
+                        "front", nil, "dex")
+                    if not handled then return original(screen, speciesId) end
+                    return withSpeciesPath(data, speciesId, "front", path,
+                        function() return original(screen, speciesId) end)
+                end
+            end)
+        patchBridgeMethod("src.ui.gen2.PokedexMenu", "drawPic",
+            "pokedex.trueColor", function(original)
+                return function(screen, row, tx, ty, ownColors)
+                    local data = screenData(screen)
+                    local speciesId = row and row.seen and row.species or nil
+                    if not formBridgeActive()
+                        or not formUsesTrueColor(data, speciesId, nil) then
+                        return original(screen, row, tx, ty, ownColors)
+                    end
+                    return withoutScreenPalettes(screen, function()
+                        return original(screen, row, tx, ty, ownColors)
+                    end, true)
+                end
+            end)
+
+        patchBridgeMethod("src.ui.gen2.EvolutionAnim", "pic", "evolution.sprite",
+            function(original)
+                return function(screen, speciesId)
+                    if not formBridgeActive() then return original(screen, speciesId) end
+                    local data = screenData(screen)
+                    local path, handled = resolvedFormSprite(data, speciesId,
+                        "front", screen.mon, "evolution")
+                    if not handled then return original(screen, speciesId) end
+                    return withSpeciesPath(data, speciesId, "front", path,
+                        function() return original(screen, speciesId) end)
+                end
+            end)
+        patchBridgeMethod("src.ui.gen2.EvolutionAnim", "picColors",
+            "evolution.trueColor", function(original)
+                return function(screen, speciesId)
+                    if formBridgeActive() and not screen.blackout
+                        and formUsesTrueColor(screenData(screen), speciesId, screen.mon) then
+                        return nil
+                    end
+                    return original(screen, speciesId)
+                end
+            end)
+
+        patchBridgeMethod("src.core.gen2.TradeAnim", "records", "trade.records",
+            function(original)
+                return function(data, save, row, given, received)
+                    local give, get = original(data, save, row, given, received)
+                    if formBridgeActive() then
+                        if give and given then give.expandedForm = given.expandedForm end
+                        if get and received then get.expandedForm = received.expandedForm end
+                    end
+                    return give, get
+                end
+            end)
+        patchBridgeMethod("src.core.gen2.NpcTrade", "perform", "trade.receivedForm",
+            function(original)
+                return function(data, save, row, index)
+                    local given, received = original(data, save, row, index)
+                    local formId = row and row.expandedSpeciesForm
+                    if formBridgeActive() and received and formId then
+                        if formDefinition(received.species, formId, data) then
+                            received.expandedForm = formId
+                        else
+                            mod.log:warn("Expanded Species: trade form %s is unavailable for %s",
+                                tostring(formId), tostring(received.species))
+                        end
+                    end
+                    return given, received
+                end
+            end)
+        patchBridgeMethod("src.ui.gen2.TradeAnim", "pic", "trade.sprite",
+            function(original)
+                return function(screen, record)
+                    if not formBridgeActive() then return original(screen, record) end
+                    local speciesId = record and record.species
+                    local data = screenData(screen)
+                    local path, handled = resolvedFormSprite(data, speciesId,
+                        "front", record, "trade")
+                    if not handled then return original(screen, record) end
+                    return withSpeciesPath(data, speciesId, "front", path,
+                        function() return original(screen, record) end)
+                end
+            end)
+        patchBridgeMethod("src.ui.gen2.TradeAnim", "drawPic", "trade.trueColor",
+            function(original)
+                return function(screen, record, offset)
+                    if not formBridgeActive()
+                        or not formUsesTrueColor(screenData(screen),
+                            record and record.species, record) then
+                        return original(screen, record, offset)
+                    end
+                    return withoutScreenPalettes(screen,
+                        function() return original(screen, record, offset) end)
+                end
+            end)
+        patchBridgeMethod("src.ui.gen2.TradeAnim", "drawIcon", "trade.icon",
+            function(original)
+                return function(screen, record, x, y)
+                    if not formBridgeActive() then return original(screen, record, x, y) end
+                    local data = screenData(screen)
+                    local form = formSelection(data, record and record.species, record)
+                    if not (form and type(form.icon) == "string" and form.icon ~= "") then
+                        return original(screen, record, x, y)
+                    end
+                    local icons = data and data.gen2Icons
+                    local iconId = icons and icons.species and icons.species[record.species]
+                    local entry = iconId and icons.icons and icons.icons[iconId]
+                    if not entry then return original(screen, record, x, y) end
+                    local ok, Sprites = pcall(require, "src.pokemon.Sprites")
+                    local path = ok and Sprites and type(Sprites.iconPath) == "function"
+                        and Sprites.iconPath(data, record, entry.image, { name = record.name })
+                        or nil
+                    if type(path) ~= "string" or path == "" then
+                        return original(screen, record, x, y)
+                    end
+                    local previousImage = entry.image
+                    local previousPalettes = screen.palettes
+                    entry.image = path
+                    if formUsesTrueColor(data, record.species, record) then
+                        screen.palettes = nil
+                    end
+                    local callOk, first, second = pcall(original, screen, record, x, y)
+                    entry.image = previousImage
+                    screen.palettes = previousPalettes
+                    if not callOk then error(first, 0) end
+                    return first, second
+                end
+            end)
+
+        patchBridgeMethod("src.core.gen2.HallOfFame", "buildParty", "hof.records",
+            function(original, HallOfFame)
+                return function(save, party)
+                    local entry = original(save, party)
+                    if not (formBridgeActive() and entry and type(entry.mons) == "table") then
+                        return entry
+                    end
+                    local recordIndex = 1
+                    for _, mon in ipairs(party or {}) do
+                        if recordIndex > #entry.mons then break end
+                        local egg = type(HallOfFame.isEgg) == "function"
+                            and HallOfFame.isEgg(mon) or false
+                        if mon and not egg then
+                            if type(mon.expandedForm) == "string" then
+                                entry.mons[recordIndex].expandedForm = mon.expandedForm
+                            end
+                            recordIndex = recordIndex + 1
+                        end
+                    end
+                    return entry
+                end
+            end)
+        patchBridgeMethod("src.ui.gen2.HallOfFame", "monPic", "hof.sprite",
+            function(original)
+                return function(screen, mon, back)
+                    if not formBridgeActive() then return original(screen, mon, back) end
+                    local speciesId = mon and mon.species
+                    local data = screenData(screen)
+                    local side = back and "back" or "front"
+                    local path, handled = resolvedFormSprite(data, speciesId,
+                        side, mon, "hof")
+                    if not handled then return original(screen, mon, back) end
+                    return withSpeciesPath(data, speciesId, side, path,
+                        function() return original(screen, mon, back) end)
+                end
+            end)
+        patchBridgeMethod("src.ui.gen2.HallOfFame", "monColors", "hof.trueColor",
+            function(original)
+                return function(screen, mon)
+                    if formBridgeActive() and formUsesTrueColor(screenData(screen),
+                        mon and mon.species, mon) then
+                        return nil
+                    end
+                    return original(screen, mon)
+                end
+            end)
+
+        patchBridgeMethod("src.ui.gen2.EggHatchAnim", "pic", "eggHatch.sprite",
+            function(original)
+                return function(screen)
+                    if not (formBridgeActive() and screen.showMon) then
+                        return original(screen)
+                    end
+                    local speciesId = screen.species
+                    local data = screenData(screen)
+                    local path, handled = resolvedFormSprite(data, speciesId,
+                        "front", screen.mon, "egg_hatch")
+                    if not handled then return original(screen) end
+                    return withSpeciesPath(data, speciesId, "front", path,
+                        function() return original(screen) end)
+                end
+            end)
+        patchBridgeMethod("src.ui.gen2.EggHatchAnim", "picColors",
+            "eggHatch.trueColor", function(original)
+                return function(screen)
+                    if formBridgeActive() and screen.showMon
+                        and formUsesTrueColor(screenData(screen), screen.species,
+                            screen.mon) then
+                        return nil
+                    end
+                    return original(screen)
+                end
+            end)
+
+        patchBridgeMethod("src.ui.gen2.PhotoStudio", "picFor", "photoStudio.sprite",
+            function(original)
+                return function(screen, speciesId)
+                    if not formBridgeActive() then return original(screen, speciesId) end
+                    local data = screenData(screen)
+                    local mon = screen.mon
+                    local path, handled = resolvedFormSprite(data, speciesId,
+                        "front", mon, "photo")
+                    if not handled then return original(screen, speciesId) end
+                    return withSpeciesPath(data, speciesId, "front", path,
+                        function() return original(screen, speciesId) end)
+                end
+            end)
+        patchBridgeMethod("src.ui.gen2.PhotoStudio", "drawPic",
+            "photoStudio.trueColor", function(original)
+                return function(screen)
+                    local mon = screen.mon
+                    if not formBridgeActive()
+                        or not formUsesTrueColor(screenData(screen),
+                            mon and mon.species, mon) then
+                        return original(screen)
+                    end
+                    return withoutScreenPalettes(screen,
+                        function() return original(screen) end)
+                end
+            end)
+
+        local failures = 0
+        for _ in pairs(state.formBridge.errors) do failures = failures + 1 end
+        state.formBridge.installed = failures == 0
+            and next(state.formBridge.adapters) ~= nil
+        if failures == 0 then
+            mod.log:info("Expanded Species installed Gold form routing for PC, Summary, Pokedex, evolution, trade, Hall of Fame, hatching and photos")
+        else
+            mod.log:warn("Expanded Species form routing installed with %d unavailable adapters",
+                failures)
+        end
+        return failures == 0
     end
 
     local function buildMon(speciesId, level, opts)
@@ -1886,6 +2295,7 @@ return function(mod)
         expandedSpeciesMetadata = true,
         customGen2PokedexRows = true,
         customPokemonForms = true,
+        goldFormScreenAdapters = true,
         extendedEncounterWeights = true,
         hiddenMissingSpeciesStorage = true,
         checkpointContentProfiles = true,
@@ -2280,6 +2690,8 @@ return function(mod)
             "Expanded Species: trade give species id is required")
         assert(type(spec.get) == "string" and spec.get ~= "",
             "Expanded Species: trade get species id is required")
+        assert(spec.form == nil or (type(spec.form) == "string" and spec.form ~= ""),
+            "Expanded Species: trade form must be a string id")
         local gender = TRADE_GENDERS[spec.gender or "either"]
         assert(gender, "Expanded Species: trade gender must be either, male or female")
         local dvs
@@ -2322,6 +2734,7 @@ return function(mod)
                 otId = helper.otId or 0,
                 gender = gender,
                 dialog = helper.dialog or "EXPANDED_SPECIES",
+                expandedSpeciesForm = helper.form,
             },
         }
         return row, copy(state.trades[key].row)
@@ -2401,6 +2814,10 @@ return function(mod)
         local form = formDefinition(mon.species, formId)
         if not form then return nil end
         return { id = formId, species = mon.species, definition = copy(form) }
+    end
+
+    function mod.exports.formScreenStatus()
+        return copy(state.formBridge)
     end
 
     function mod.exports.missingCount()
@@ -2522,6 +2939,7 @@ return function(mod)
             trainerPatches = {},
             missing = missing,
             checkpoint = mod.exports.checkpointProfile(),
+            formScreens = mod.exports.formScreenStatus(),
             errors = {},
             warnings = {},
         }
@@ -2599,6 +3017,8 @@ return function(mod)
             ("Species: %d; encounters: %d; trainer patches: %d")
                 :format(#report.species, #report.encounters, #report.trainerPatches),
             ("Hidden missing Pokemon: %d"):format(#report.missing),
+            ("Gold form screen bridge: %s")
+                :format(report.formScreens.installed and "installed" or "unavailable"),
             report.ok and "STATUS: COMPATIBLE" or "STATUS: NEEDS ATTENTION",
         }
         for _, message in ipairs(report.errors) do
@@ -2622,16 +3042,8 @@ return function(mod)
 
     local function selectedForm(context)
         local speciesId = context and context.species
-        local definition = context and context.data and context.data.pokemon
-            and context.data.pokemon[speciesId]
-        local marker = markerFor(definition)
-        if not (marker and type(marker.forms) == "table") then return nil end
-        local mon = context.mon
-        local formId = type(mon) == "table" and mon.expandedForm or nil
-        formId = formId or marker.defaultForm
-        local form = formId and marker.forms[formId] or nil
-        if type(form) ~= "table" then return nil end
-        return form, formId
+        return formSelection(context and context.data, speciesId,
+            context and context.mon)
     end
 
     mod.hooks:wrap("pokemon.sprite", function(next_, path, context)
@@ -2788,7 +3200,9 @@ return function(mod)
     end)
 
     mod.events:on("game.ready", function(context)
-        reconcile(context and context.game or mod.game)
+        local game = context and context.game or mod.game
+        reconcile(game)
+        installFormBridge()
     end)
 
     mod.log:info("Expanded Species %s loaded", VERSION)

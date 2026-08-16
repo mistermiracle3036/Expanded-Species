@@ -77,11 +77,12 @@ use Ditto. A `trueColor = true` species uses the PNG's colors instead.
 
 ## Can one species have cosmetic forms?
 
-Yes. Expanded Species 0.6 stores a named form on each individual Pokemon and
-can route alternate battle, Summary, and party-icon art. Gold 0.1.94 still
-shows base species art in PC Box, Pokedex, evolution, trade, and Hall of Fame,
-and cannot choose a palette or cry per individual. Use true-color form art when
-a form needs different colors.
+Yes. Expanded Species 0.6.1 stores a named form on each individual Pokemon and
+routes it through battles, Summary, PC preview, evolution, NPC trades, Hall of
+Fame, egg hatching, Photo Studio, and party/trade icons. The Pokedex displays
+the species' `defaultForm` because it has no individual Pokemon record.
+True-color form art bypasses palette remapping, but Gold still cannot choose a
+separate palette table or cry per individual.
 
 ## How can a pack report compatibility or protect checkpoints?
 

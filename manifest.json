@@ -1,7 +1,7 @@
 {
   "id": "expanded_species",
   "name": "Expanded Species",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "author": "Mister Miracle",
   "description": "Gold-only framework for custom Pokemon, safe saves, extended encounters, cosmetic forms, and author diagnostics.",
   "games": [
