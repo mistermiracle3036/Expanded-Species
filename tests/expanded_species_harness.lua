@@ -47,11 +47,20 @@ end
 local init = assert(loadfile("main.lua"))()
 init(framework)
 
-expectEqual(framework.exports.api_version, 1, "API version")
+expectEqual(framework.exports.api_version, 1, "additive API remains backward-compatible")
+expect(framework.exports.supportsApi(1), "API 1 negotiation")
+expectEqual(framework.exports.getApi(1), framework.exports, "API 1 facade")
+expectEqual(framework.exports.getApi(2), nil, "unknown API facade is refused")
+expectEqual(framework.exports.requireCapabilities({ "scriptedTrainers", "gifts" }),
+    framework.exports, "capability negotiation")
+expect(framework.exports.supports("scriptedTrainers"), "trainer capability")
+expect(framework.exports.supports("batchRegistration"), "batch capability")
 expect(type(readyCallback) == "function", "game.ready callback was not registered")
 expect(type(encounterRollHook) == "function", "encounter.roll hook was not registered")
 
 local registered = {}
+local registeredCommands = {}
+local registeredTrainers = {}
 local function vanillaSlots(count, prefix)
     local slots = {}
     for index = 1, count do
@@ -84,12 +93,39 @@ local provider = {
     content = {
         pokemon = {},
         encounters = {},
+        commands = {},
+        trainers = {},
     },
+    save = { values = {} },
 }
 
 function provider.content.pokemon:register(speciesId, definition)
     expect(registered[speciesId] == nil, "provider tried to overwrite a species")
     registered[speciesId] = definition
+end
+
+
+function provider.content.commands:register(commandId, handler)
+    expect(registeredCommands[commandId] == nil, "provider command must register once")
+    registeredCommands[commandId] = handler
+end
+
+
+function provider.content.trainers:register(classId, definition)
+    expect(registeredTrainers[classId] == nil, "provider trainer class must be unique")
+    registeredTrainers[classId] = definition
+end
+
+
+function provider.save:get(key, default)
+    local value = self.values[key]
+    if value == nil then return default end
+    return value
+end
+
+
+function provider.save:set(key, value)
+    self.values[key] = value
 end
 
 function provider.content.encounters:get(kind)
@@ -168,6 +204,7 @@ local ids = {
     "TEST_PACK_DELTA",
 }
 
+local definitions = {}
 for position, speciesId in ipairs(ids) do
     local requested = position == 1 and 260 or nil
     local definition = speciesDefinition(speciesId, requested)
@@ -183,13 +220,35 @@ for position, speciesId in ipairs(ids) do
             shiny = { { 100, 220, 240 }, { 20, 80, 120 } },
         }
     end
-    local normalized = framework.exports.register(
-        provider,
-        definition
-    )
+    definitions[#definitions + 1] = definition
+end
+
+local invalidReport = framework.exports.preflight(provider, {
+    id = "BROKEN_SPECIES",
+    name = "BROKEN",
+})
+expect(not invalidReport.ok, "preflight should reject missing stats and sprites")
+expect(#invalidReport.errors >= 3, "preflight should return actionable errors")
+
+local normalizedBatch = framework.exports.registerAll(provider, definitions)
+expectEqual(#normalizedBatch, #ids, "batch registration count")
+for _, normalized in ipairs(normalizedBatch) do
     expectEqual(normalized.index, nil, "helper must strip byte-sized index")
     expectEqual(normalized.expandedSpecies.provider, provider.id, "provider ownership marker")
 end
+
+local minimal = speciesDefinition("TEST_PACK_DEFAULTS", nil)
+minimal.types = nil
+minimal.catchRate = nil
+minimal.baseExp = nil
+minimal.growthRate = nil
+minimal.levelMoves = nil
+minimal.evolutions = nil
+minimal.picSize = nil
+local defaultsReport = framework.exports.preflight(provider, minimal)
+expect(defaultsReport.ok, "safe defaults should complete low-risk fields")
+expectEqual(defaultsReport.definition.types[1], "NORMAL", "default type")
+expectEqual(defaultsReport.definition.catchRate, 45, "default catch rate")
 
 framework.exports.addGrassEncounter(provider, {
     map = "ROUTE_29",
@@ -203,6 +262,48 @@ framework.exports.addWaterEncounter(provider, {
     level = 12,
     weight = 25,
 })
+
+local giftRow = framework.exports.registerGift(provider, {
+    id = "alpha_gift",
+    species = "TEST_PACK_ALPHA",
+    level = 10,
+})
+local stationaryRow = framework.exports.registerStationaryEncounter(provider, {
+    id = "beta_statue",
+    species = "TEST_PACK_BETA",
+    level = 18,
+    shiny = true,
+    hideObject = true,
+})
+local trainerRow, trainerClass = framework.exports.registerTrainerEncounter(provider, {
+    id = "alpha_tester",
+    className = "TESTER",
+    trainerName = "ADA",
+    picFallback = "YOUNGSTER",
+    party = {
+        { species = "TEST_PACK_ALPHA", level = 15 },
+        { species = "TEST_PACK_BETA", level = 16 },
+    },
+})
+local tradeRow = framework.exports.registerTrade(provider, {
+    id = "alpha_for_beta",
+    give = "TEST_PACK_ALPHA",
+    get = "TEST_PACK_BETA",
+    nickname = "BETATEST",
+    shiny = true,
+    otName = "QA",
+    otId = 3036,
+})
+
+expectEqual(giftRow[1], "test_species_pack:expanded_species", "gift command verb")
+expectEqual(giftRow[2], "gift", "gift command kind")
+expectEqual(stationaryRow[2], "stationary", "stationary command kind")
+expectEqual(trainerRow[2], "trainer", "trainer command kind")
+expectEqual(tradeRow[2], "trade", "trade command kind")
+expectEqual(trainerClass.trainers[1].party[2].species, "TEST_PACK_BETA",
+    "trainer party keeps custom string ids")
+expectEqual(registeredCommands["test_species_pack:expanded_species"] ~= nil, true,
+    "one provider-owned script command")
 
 for _, time in ipairs({ "MORN", "DAY", "NITE" }) do
     expectEqual(#encounterTables.grass.ROUTE_29.slots[time], 8,
@@ -281,6 +382,16 @@ if arg and arg[1] then
     )
     expect(ok, "normalized species must satisfy Gold's real schema: "
         .. tostring(schemaError))
+    local trainerOk, trainerError = Schemas.check(
+        Schemas.REGISTRIES.trainers,
+        "trainers",
+        trainerClass.id,
+        trainerClass,
+        "register",
+        2
+    )
+    expect(trainerOk, "custom trainer must satisfy Gold's real schema: "
+        .. tostring(trainerError))
 end
 
 local pokemon = {}
@@ -315,6 +426,8 @@ pokemon.TEST_PACK_DIRECT.index = nil
 
 local data = {
     pokemon = pokemon,
+    moves = {},
+    audio = { cries = {} },
     gen2Pokedex = {
         entries = entries,
         newOrder = newOrder,
@@ -341,10 +454,50 @@ local data = {
                 shiny = { { 255, 255, 255 }, { 80, 80, 180 } },
             },
         },
+        trainers = {
+            YOUNGSTER = { { 248, 200, 120 }, { 120, 72, 32 } },
+        },
+    },
+    gen2Trainers = { classes = registeredTrainers },
+    gen2MenuGfx = {
+        battleHud = {
+            trainerPics = { YOUNGSTER = "vanilla_youngster.png" },
+        },
     },
 }
 
-readyCallback({ game = { data = data } })
+for speciesId in pairs(registered) do data.audio.cries[speciesId] = {} end
+
+local battleStarted
+local battleDone
+local disappearedObject
+local game = {
+    data = data,
+    save = {
+        party = {
+            { species = "DITTO", level = 20, hp = 40, stats = { hp = 40 } },
+        },
+        boxes = {},
+        currentBox = 1,
+        player = { name = "TESTER", id = 1234 },
+        pokedex = { seen = {}, caught = {} },
+        tradeFlags = {},
+    },
+    world = {
+        eventTables = { trades = { {}, {}, {}, {}, {}, {} } },
+    },
+}
+function game.world:startBattle(opts, onDone)
+    battleStarted = opts
+    battleDone = onDone
+    return true
+end
+function game.world:disappearObject(objectId)
+    disappearedObject = objectId
+end
+framework.game = game
+
+readyCallback({ game = game })
 
 local allocatedIds = framework.exports.all()
 expectEqual(#allocatedIds, 9, "all custom species should be allocated")
@@ -383,11 +536,129 @@ expectEqual(data.gen2Pokedex.entries.TEST_PACK_ALPHA.weight, 555,
 expectEqual(#data.gen2Pokedex.newOrder, 260, "new-order Pokedex should contain every species once")
 expectEqual(#data.gen2Pokedex.alphabeticalOrder, 260,
     "alphabetical Pokedex should contain every species once")
+expectEqual(framework.exports.owner("TEST_PACK_ALPHA"), provider.id,
+    "owner query")
+expectEqual(#framework.exports.byProvider(provider), 8,
+    "provider query excludes directly adopted species")
+expectEqual(framework.exports.info("TEST_PACK_ALPHA").virtualIndex,
+    framework.exports.virtualIndex("TEST_PACK_ALPHA"), "metadata query")
+local diagnostic = framework.exports.diagnose("TEST_PACK_ALPHA")
+expect(diagnostic.ok, "registered custom species diagnostic should pass")
+expectEqual(data.gen2Trainers.classes[trainerClass.id].pic,
+    "vanilla_youngster.png", "trainer portrait fallback")
+expect(data.gen2Palettes.trainers[trainerClass.id] ~= nil,
+    "trainer palette fallback")
+expectEqual(#game.world.eventTables.trades, 7,
+    "custom trade appends after six vanilla trades")
 
-readyCallback({ game = { data = data } })
+package.loaded["src.battle.gen2.Mon"] = {
+    new = function(_, species, level, opts)
+        opts = opts or {}
+        return {
+            species = species,
+            name = species,
+            level = level,
+            hp = 30,
+            stats = { hp = 30 },
+            dvs = opts.dvs,
+            shiny = opts.shiny or (opts.dvs and opts.dvs.attack == 14),
+            nickname = opts.nickname,
+            item = opts.item,
+            moves = opts.moves or {},
+        }
+    end,
+    stampOT = function(save, mon)
+        mon.ot = save.player.name
+        mon.otId = save.player.id
+        return mon
+    end,
+}
+package.loaded["src.pokemon.Party"] = {
+    add = function(party, mon)
+        if #party >= 6 then return false end
+        party[#party + 1] = mon
+        return true
+    end,
+    firstHealthy = function(party)
+        for _, mon in ipairs(party or {}) do
+            if (mon.hp or 0) > 0 then return mon end
+        end
+    end,
+}
+package.loaded["src.pokemon.Boxes"] = {
+    deposit = function(save, mon)
+        save.boxes[1] = save.boxes[1] or {}
+        if #save.boxes[1] >= 20 then return nil end
+        save.boxes[1][#save.boxes[1] + 1] = mon
+        return 1
+    end,
+}
+package.loaded["src.core.gen2.Unown"] = { registerCatch = function() end }
+
+local helper = registeredCommands["test_species_pack:expanded_species"]
+local shown = {}
+local vm = {
+    showRaw = function(_, text) shown[#shown + 1] = text end,
+}
+helper({ vm = vm }, "gift", "alpha_gift")
+expectEqual(#game.save.party, 2, "gift adds custom species to party")
+expectEqual(game.save.party[2].species, "TEST_PACK_ALPHA", "gift species")
+expect(game.save.pokedex.caught.TEST_PACK_ALPHA, "gift marks caught dex state")
+helper({ vm = vm }, "gift", "alpha_gift")
+expectEqual(#game.save.party, 2, "one-time gift cannot duplicate")
+
+local stationaryCo
+local stationaryVm = {}
+function stationaryVm:resume(outcome)
+    local ok, err = coroutine.resume(stationaryCo, outcome)
+    expect(ok, "stationary command resume: " .. tostring(err))
+end
+stationaryCo = coroutine.create(function()
+    helper({ vm = stationaryVm, object = 9 }, "stationary", "beta_statue")
+end)
+local stationaryOk, stationaryRequest = coroutine.resume(stationaryCo)
+expect(stationaryOk, "stationary command should yield")
+expectEqual(stationaryRequest.kind, "expanded_species_battle",
+    "stationary command blocks the script")
+expectEqual(battleStarted.wild.species, "TEST_PACK_BETA", "stationary species")
+expectEqual(battleStarted.wild.dvs.attack, 14, "stationary shiny DVs")
+battleDone("win")
+expectEqual(coroutine.status(stationaryCo), "dead", "stationary resumes after battle")
+expectEqual(disappearedObject, 9, "stationary helper hides its object")
+expect(framework.exports.helperComplete(provider, "stationary", "beta_statue"),
+    "stationary completion uses provider save")
+
+local trainerCo = coroutine.create(function()
+    helper({ vm = {} }, "trainer", "alpha_tester")
+end)
+local trainerOk, trainerRequest = coroutine.resume(trainerCo)
+expect(trainerOk, "trainer command should yield")
+expectEqual(trainerRequest.kind, "battle", "trainer uses Gold VM battle request")
+expectEqual(trainerRequest.trainer.roster[2].species, "TEST_PACK_BETA",
+    "trainer roster keeps custom species id")
+expect(coroutine.resume(trainerCo, "win"), "trainer command resumes")
+expect(framework.exports.helperComplete(provider, "trainer", "alpha_tester"),
+    "trainer completion uses provider save")
+
+local tradeCo = coroutine.create(function()
+    helper({ vm = {} }, "trade", "alpha_for_beta")
+end)
+local tradeOk, tradeRequest = coroutine.resume(tradeCo)
+expect(tradeOk, "trade command should yield")
+expectEqual(tradeRequest.kind, "trade", "trade uses Gold VM trade request")
+expectEqual(tradeRequest.trade, 6, "custom trade follows six vanilla rows")
+game.save.tradeFlags[6] = true
+expect(coroutine.resume(tradeCo), "trade command resumes")
+expect(framework.exports.helperComplete(provider, "trade", "alpha_for_beta"),
+    "trade completion is stored under provider save")
+expectEqual(game.save.tradeFlags[6], nil, "runtime trade flag does not leak")
+
+readyCallback({ game = game })
 expectEqual(#data.gen2Pokedex.newOrder, 260, "hot reload must not duplicate Pokedex rows")
 expectEqual(#data.gen2Pokedex.alphabeticalOrder, 260,
     "hot reload must not duplicate alphabetical rows")
+expectEqual(#game.world.eventTables.trades, 7,
+    "hot reload must not duplicate custom trade rows")
 
 print(string.format(
     "PASS: allocated %d custom Gold species at IDs 252-260, including 256+",

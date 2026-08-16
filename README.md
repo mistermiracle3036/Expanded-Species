@@ -7,15 +7,17 @@ species.
 The framework keeps the vanilla species table intact, assigns deterministic
 runtime IDs beginning at 252, and integrates custom species with Gold's Pokedex,
 party/box icons, palettes, engine-native saves, battles, breeding data, and
-extended weighted grass/swimming encounter pools.
+extended weighted grass/swimming encounter pools. Version 0.3 also gives packs safe
+string-ID helpers for gifts, stationary encounters, custom trainers and NPC
+trades without using Gold's byte-sized species script operands.
 
 ## For players
 
-Install `expanded_species-0.2.1.zip` like any other gen1recomp mod, then install
+Install `expanded_species-0.3.0.zip` like any other gen1recomp mod, then install
 a species pack that declares Expanded Species as a dependency. The framework
 does not add Pokemon by itself.
 
-The initial build targets gen1recomp Gold 0.1.79 or newer in the 0.x/1.x line.
+This build targets gen1recomp Gold 0.1.94 or newer in the 0.x/1.x line.
 It does not support Red.
 
 ## For mod makers
@@ -24,9 +26,13 @@ Declare this dependency in your manifest:
 
 ```json
 "dependencies": [
-  "expanded_species@>=0.2.0 <1.0.0"
+  "expanded_species@>=0.3.0 <2.0.0"
 ]
 ```
+
+Expanded Species reserves `2.0.0` for a breaking provider API change. The
+exported `api_version` stays `1` throughout the current contract; negotiate
+optional features by name instead of requiring that scalar to increase.
 
 Then register through the provider-facing API in your own `main.lua`:
 
@@ -34,6 +40,8 @@ Then register through the provider-facing API in your own `main.lua`:
 return function(mod)
   local framework = assert(mod.find("expanded_species"),
     "This mod requires Expanded Species")
+  local api = assert(framework.exports.getApi(1))
+  api = assert(api.requireCapabilities({ "safeDefaults", "customDex" }))
   local speciesId = "MY_PACK_AURORIX"
 
   -- Register owned audio before the species that references it.
@@ -41,7 +49,7 @@ return function(mod)
     file = mod.assets:path("assets/aurorix_cry.ogg"),
   })
 
-  framework.exports.register(mod, {
+  api.register(mod, {
     id = speciesId,
     name = "AURORIX",
     types = { "ICE", "PSYCHIC" },
@@ -91,6 +99,20 @@ an `index`; Expanded Species assigns it after all content has passed Gold's
 one-byte compatibility validation. See [AUTHOR_API.md](AUTHOR_API.md) for the
 complete contract, including natural route encounters.
 
+For larger packs, `preflight` returns all authoring errors at once and
+`registerAll` validates the whole list before it writes any species:
+
+```lua
+local report = framework.exports.preflight(mod, aurorix)
+assert(report.ok, report.errors[1] and report.errors[1].message)
+
+framework.exports.registerAll(mod, { aurorix, burgela, coinpur })
+```
+
+Version 0.3 supplies safe defaults for `types`, `catchRate`, `baseExp`,
+`growthRate`, `levelMoves`, `evolutions`, and `picSize`. Authors still provide
+identity, all six base stats, and owned front/back sprite paths.
+
 To add the registered species to an existing grass zone without replacing any
 of its seven vanilla rows:
 
@@ -107,6 +129,34 @@ framework.exports.addGrassEncounter(mod, {
 The vanilla pool has weight 100. One custom entry with weight 1 therefore has
 a 1/101 chance when an encounter triggers; it does not change how often steps
 trigger battles.
+
+### Gifts, stationary encounters, trainers and trades
+
+Each helper registers one provider-owned command and returns a ready-to-use
+Gold VM row. Put that row in a custom runtime NPC's `scriptKey`, or call the
+same provider command from a Gold script integration owned by your pack.
+
+```lua
+local giftRow = framework.exports.registerGift(mod, {
+  id = "aurorix_gift",
+  species = speciesId,
+  level = 10,
+  receivedText = "AURORIX joined you!",
+})
+
+local stationaryRow = framework.exports.registerStationaryEncounter(mod, {
+  id = "aurorix_shrine",
+  species = speciesId,
+  level = 40,
+  introText = "An icy presence appeared!",
+  hideObject = true,
+})
+```
+
+Trainer rosters and both sides of an NPC trade also take registry string IDs,
+including custom species above #255. Completion state lives in the calling
+pack's own `mod.save` namespace. See [AUTHOR_API.md](AUTHOR_API.md) for complete
+examples and custom NPC wiring.
 
 ### Palettes
 
@@ -138,7 +188,7 @@ true-color, shiny-testing, and multi-file species-pack guidance.
 - Engine-native gen1recomp saves retain custom Pokemon by string ID.
 - A physical cartridge `.sav` cannot encode virtual species above 255.
 - Gold ROM-script operations that take a one-byte species number cannot name a
-  virtual species. Use registry-based encounter and trainer-party APIs instead.
+  virtual species. Use the 0.3 registry/script helpers instead.
 - Link battles require both players to have matching framework and species-pack
   data. Species packs should set `"affects_link": true`.
 - Do not disable a species pack while one of its Pokemon is in a party or box.

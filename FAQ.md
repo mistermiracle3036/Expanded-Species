@@ -39,7 +39,7 @@ packs should declare `affects_link` in their manifests.
 
 ## Can a species pack add more than seven grass or three swimming entries?
 
-Yes. Expanded Species 0.2.0 gives packs weighted grass and water placement
+Yes. Expanded Species gives packs weighted grass and water placement
 helpers with no fixed row-count ceiling. The original slots remain intact, the
 map's encounter rate does not change, and enabled packs compose into one custom
 pool. Practical memory and load time are the only slot-count boundary.
@@ -62,3 +62,20 @@ use Ditto. A `trueColor = true` species uses the PNG's colors instead.
 Yes. Keep registration in `main.lua`, place definitions under `species/`, and
 load them with the documented `mod:read` helper pattern. This works with
 imported ZIPs and keeps cries, sprites, palettes and stats grouped by species.
+On gen1recomp 0.1.94, `mod:list("species")` can discover the files inside both
+folder and packaged mods.
+
+## Can trainers, gifts, stationary encounters, and trades use custom species?
+
+Yes. Expanded Species 0.3 has provider-owned helpers for all four. They pass registry string
+IDs directly to Gold's runtime systems, including IDs above #255, and keep
+one-time completion in the calling pack's `mod.save` namespace. Do not put a
+virtual numeric index into Gold's original one-byte `givepoke`, `loadwildmon`,
+`loadtrainer`, or trade operands.
+
+## How do I test evolutions and shiny palettes quickly?
+
+Battle Spawner 0.4.0 adds `ACTION = GIVE MON` and `FORM = SHINY`. Give the mon
+to the party or box, then level it, use its evolution item, save/reload, and
+send it into battle to check the back sprite. Its normal battle action remains
+the fastest front-sprite and catch test.

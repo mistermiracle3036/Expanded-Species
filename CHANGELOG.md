@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.0] — 2026-08-15
+
+- Added preflight reports, low-risk species defaults and up-front batch
+  validation for larger packs without breaking the existing API 1 contract.
+- Added capability, owner, provider, metadata and live diagnostic queries.
+- Added `getApi`, `supportsApi` and `requireCapabilities` negotiation so packs
+  can depend on stable API 1 through all non-breaking releases below 2.0.
+- Added provider-owned Gold script helpers for one-time gifts, stationary wild
+  battles, custom trainer rosters and full in-game NPC trades.
+- Custom trainer parties and trades use string species IDs, so they work above
+  #255 without passing through Gold's one-byte script operands.
+- Added runtime gift and wild-battle helpers for developer tools, including
+  forced shiny DVs and automatic party-to-box fallback.
+- Updated the modular-pack guidance for 0.1.94's ZIP-safe `mod:list` API.
+
 ## [0.2.1] — 2026-08-15
 
 - Documented custom normal and shiny palette assignment, Gold's two supplied

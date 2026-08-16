@@ -1,8 +1,8 @@
 {
   "name": "Expanded Species",
   "author": "Mister Miracle",
-  "version": "0.2.1",
-  "description": "A Gold framework for custom species and uncapped grass/water pools.",
+  "version": "0.3.0",
+  "description": "A Gold framework for custom species, uncapped wild pools, gifts, trainers and scripted encounters.",
   "tags": [
     "framework",
     "gold",

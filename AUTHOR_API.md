@@ -1,6 +1,6 @@
 # Expanded Species author API
 
-API version: `1`
+API version: `1` (0.3 additions are backward-compatible capabilities)
 
 ## Contract
 
@@ -16,17 +16,51 @@ schema validation and tags the record for deterministic allocation during
 The framework never overrides an existing registry key. A duplicate string ID
 is rejected by gen1recomp's normal content registry.
 
+### Preflight and batch registration
+
+`preflight` does not write content. It applies the safe defaults and returns a
+report with `ok`, `errors`, `warnings`, and the completed `definition`:
+
+```lua
+local report = expanded.exports.preflight(mod, definition)
+if not report.ok then
+  for _, issue in ipairs(report.errors) do
+    mod.log:error("%s: %s", issue.path, issue.message)
+  end
+  error("Custom species preflight failed")
+end
+```
+
+For a larger pack, use `registerAll`. It preflights every row and detects
+duplicate IDs before making the first registry write:
+
+```lua
+local registered = expanded.exports.registerAll(mod, {
+  buildBurgela(mod),
+  buildCoinpur(mod),
+  buildOrfry(mod),
+})
+```
+
+This prevents a typo late in the list from leaving only the first half of a
+pack registered.
+
 ## Required species fields
 
-Gold's Pokemon schema requires these core fields:
+Gold's Pokemon schema requires these core fields after framework defaults are
+applied:
 
-- `id`, `name`, and `types`
+- `id` and `name`
 - `baseStats` with `hp`, `attack`, `defense`, `speed`, `specialAttack`, and
   `specialDefense`
-- `catchRate`, `baseExp`, and `growthRate`
-- `levelMoves`, `tmhm`, and `evolutions`
-- `eggGroups`, `eggMoves`, `eggSteps`, and `genderRatio`
-- `items`, `spriteFront`, `spriteBack`, and `picSize`
+- `spriteFront` and `spriteBack`
+
+The framework defaults `types` to `{ "NORMAL" }`, `catchRate` to `45`,
+`baseExp` to `100`, `growthRate` to `GROWTH_MEDIUM_FAST`, `levelMoves` and
+`evolutions` to empty lists, and `picSize` to `7`. These defaults make a probe
+species concise without inventing art, identity, or battle stats. `tmhm`, the
+breeding block and held `items` are optional in Gold's current schema; supply
+them when the design uses them.
 
 An owned cry is strongly recommended. Register it in `mod.content.cries`
 before the species record, use the same globally namespaced ID for both, and
@@ -170,10 +204,46 @@ After `game.ready`:
 local index = expanded.exports.virtualIndex("MY_PACK_AURORIX")
 local allIds = expanded.exports.all()
 local nextFree = expanded.exports.nextIndex()
+local owner = expanded.exports.owner("MY_PACK_AURORIX")
+local mine = expanded.exports.byProvider(mod)
+local info = expanded.exports.info("MY_PACK_AURORIX")
+local report = expanded.exports.diagnose("MY_PACK_AURORIX")
 ```
 
-The exported `api_version` is `1`. Check it if your species pack depends on a
-newer contract.
+`info` returns a protected copy of the live species record plus its owner,
+allocated index and Dex number. `diagnose` checks the merged record, both battle
+sprites, allocation, Dex row, icon, palette, cry, and evolution targets.
+
+The exported `api_version` remains `1` because 0.3 only adds methods; existing
+species packs keep working unchanged. This is Expanded Species' provider API,
+not the separate gen1recomp `"api": 2` value in `manifest.json`.
+
+Do not compare `api_version` with the newest framework release number. Request
+the compatible API facade and the named features your pack actually needs:
+
+```lua
+local api, apiError = expanded.exports.getApi(1)
+assert(api, apiError)
+
+local required, capabilityError = api.requireCapabilities({
+  "scriptedTrainers",
+  "gifts",
+})
+assert(required, capabilityError)
+```
+
+Use this dependency range in the pack manifest:
+
+```json
+"expanded_species@>=0.3.0 <2.0.0"
+```
+
+Expanded Species reserves `2.0.0` for a breaking provider API. Compatible
+0.x and 1.x releases keep `getApi(1)` available and add optional behavior under
+named capabilities. If a future 2.x release adds a new facade, a pack must opt
+into it deliberately by changing both its dependency range and `getApi` call.
+The legacy `supports(name)` and `capabilities()` queries remain useful for
+features that are optional rather than required.
 
 ## Organizing a larger species pack
 
@@ -202,7 +272,7 @@ return function(mod)
   local id = "MY_PACK_BURGELA"
   return {
     id = id,
-    cry = { base = "TANGELA" },
+    cry = { file = mod.assets:path("assets/burgela_cry.ogg") },
     definition = {
       id = id,
       name = "BURGELA",
@@ -234,11 +304,10 @@ local function loadPackFile(relative)
   return result
 end
 
-local files = {
-  "species/burgela.lua",
-  "species/coinpur.lua",
-  "species/orfry.lua",
-}
+local files = {}
+for _, name in ipairs(mod:list("species")) do
+  if name:match("%.lua$") then files[#files + 1] = "species/" .. name end
+end
 
 for _, relative in ipairs(files) do
   local build = loadPackFile(relative)
@@ -250,10 +319,12 @@ for _, relative in ipairs(files) do
 end
 ```
 
-Use an explicit ordered file list. The public mod surface provides `read`, not
-directory enumeration, and a written list makes registration order and missing
-files diagnosable. Keep all `mod.content.*` writes in `main.lua`; the per-species
-files should return owned data rather than registering content themselves.
+`mod:list("species")` is available in gen1recomp 0.1.94 and returns a sorted,
+shallow list from the same folder/ZIP abstraction as `mod:read`. Filter it to
+`.lua` files as above; directories and art files should not be compiled. An
+explicit ordered list is also valid when load order is intentionally curated.
+Keep all `mod.content.*` writes in `main.lua`; the per-species files should
+return owned data rather than registering content themselves.
 
 Do not use `loadfile` with a Windows/macOS path for this pattern. It may appear
 to work in an unpacked development folder while failing after the pack is
@@ -262,7 +333,7 @@ uses for folder and packaged mods.
 
 ## Extended wild encounter pools
 
-Expanded Species 0.2.0 adds new rows to an existing Gold grass or swimming
+Expanded Species adds new rows to an existing Gold grass or swimming
 zone without replacing its seven grass slots or three water slots. Register
 the species first, then call the placement helper from the same entry point:
 
@@ -320,6 +391,159 @@ the official `encounter.roll` hook for selection. Fishing, Headbutt, Rock Smash
 and Bug-Catching Contest tables already use variable-length chance rows and do
 not need this 7/3-slot extension.
 
+## Trainer and scripted encounter helpers
+
+Gold's original `givepoke`, `loadwildmon`, `loadtrainer`, and trade table use
+cartridge-sized numeric operands. Do not feed a virtual index above 255 into
+those commands. Expanded Species 0.3 registers provider-owned mod commands whose species
+fields remain registry string IDs.
+
+Each registration returns one ready-to-use Gold VM row. A custom runtime NPC
+can use it directly as its `scriptKey`:
+
+```lua
+local giftRow = expanded.exports.registerGift(mod, {
+  id = "aurorix_gift",
+  species = "MY_PACK_AURORIX",
+  level = 10,
+  introText = "Please care for this POKéMON.",
+  receivedText = "AURORIX joined you!",
+  alreadyText = "How is AURORIX doing?",
+})
+
+local giftNpc
+mod.events:on("map.entered", function(ev)
+  if ev.mapId == "NEW_BARK_TOWN" and not giftNpc then
+    giftNpc = assert(mod.world:spawnNpc("NEW_BARK_TOWN", {
+      sprite = "SPRITE_GRAMPS",
+      x = 8,
+      y = 6,
+      movement = "SPRITEMOVEDATA_STANDING_DOWN",
+      scriptKey = { giftRow },
+    }))
+  end
+end)
+```
+
+Runtime objects are not serialized. Keep their returned handle for the running
+session and respawn them once after a full launch. These rows can also be used
+inside another Gold VM script integration owned by the species pack. The
+helpers do not silently replace an original map object's ROM-derived script.
+
+### Gifts
+
+```lua
+local row = expanded.exports.registerGift(mod, {
+  id = "burgela_gift",
+  species = "MY_PACK_BURGELA",
+  level = 5,
+  shiny = false,
+  item = "MIRACLE_SEED",       -- optional
+  nickname = "VINEY",         -- optional
+  allowBox = true,             -- default: party, then any available box
+  once = true,                 -- default
+})
+```
+
+The received mon gets the player's OT, marks seen/caught Dex state, and goes to
+the party or an available box. If both are full, it is not created and the
+one-time flag is not set. Set `fullText` to customize that refusal.
+
+### Stationary wild encounters
+
+```lua
+local row = expanded.exports.registerStationaryEncounter(mod, {
+  id = "aurorix_shrine",
+  species = "MY_PACK_AURORIX",
+  level = 40,
+  shiny = true,                -- uses Gold's real shiny DV pattern
+  introText = "The frozen statue moved!",
+  afterText = "The shrine became quiet.",
+  hideObject = true,
+  once = true,
+})
+```
+
+Running away or catching the mon completes a normal one-shot stationary
+encounter, matching Gold's static battle scripts. Losing does not set the
+provider flag. `hideObject` removes the talking object from the live map after
+the battle; use the helper completion query when deciding whether to respawn a
+runtime object on a later launch.
+
+### Custom trainers
+
+```lua
+local row, class = expanded.exports.registerTrainerEncounter(mod, {
+  id = "aurora_researcher",
+  className = "RESEARCHER",
+  trainerName = "MIRA",
+  picFallback = "SCIENTIST",
+  baseMoney = 40,
+  party = {
+    { species = "MY_PACK_AURORIX", level = 18 },
+    { species = "MY_PACK_BURGELA", level = 20,
+      moves = { "VINE_WHIP", "BIND" } },
+  },
+  trainerType = "TRAINERTYPE_MOVES",
+  introText = "Show me what you discovered!",
+  afterText = "That result was fascinating!",
+  once = true,
+})
+```
+
+The helper owns a new Gold trainer class in the calling pack's trainers
+registry. The class intentionally has no numeric `index`; the helper passes its
+roster directly to Gold's trainer builder. `pic` may point at owned custom art,
+or `picFallback` can reuse a vanilla portrait and palette without
+redistributing it. Party rows support `item` and `moves` using the ordinary
+Gold trainer schema.
+
+### NPC trades
+
+```lua
+local row = expanded.exports.registerTrade(mod, {
+  id = "burgela_for_coinpur",
+  give = "MY_PACK_BURGELA",
+  get = "MY_PACK_COINPUR",
+  nickname = "LUCKY",
+  otName = "MIRA",
+  otId = 3036,
+  gender = "either",           -- either, male, or female
+  dvs = { attack = 9, defense = 8, speed = 8, special = 8 },
+  item = "AMULET_COIN",
+})
+```
+
+Both `give` and `get` may be vanilla or custom string IDs. `shiny = true` is a
+shortcut for Gold's shiny DV bytes; otherwise supply two raw DV bytes or the
+named four-DV form above. The normal Gold party picker, validation, trade
+animation, OT data, cry, and one-time conversation are retained. Completion is
+mirrored into the provider's stable `mod.save` key, so a changed set of other
+mods cannot make a saved numeric trade slot refer to the wrong pack.
+
+### Runtime and completion helpers
+
+Developer tools may call these after `game.ready`:
+
+```lua
+local result = expanded.exports.givePokemon(speciesId, 20, {
+  shiny = true,
+  allowBox = true,
+})
+
+local ok, err = expanded.exports.startWildBattle(speciesId, 20, {
+  shiny = true,
+})
+```
+
+One-time state can be queried when spawning actors, and reset by a pack's own
+developer option:
+
+```lua
+local done = expanded.exports.helperComplete(mod, "stationary", "aurorix_shrine")
+expanded.exports.resetHelper(mod, "stationary", "aurorix_shrine")
+```
+
 ## Compatibility boundary
 
 Virtual indices are an engine-runtime extension, not an alteration to the Game
@@ -342,11 +566,15 @@ relaunch Gold:
    back sprite and player-side cry.
 3. Open its party summary and Pokedex entry; confirm the cry plays from both.
 4. Verify its stats, moves, party/box icon, normal palette and shiny palette.
-5. Deposit and withdraw it, save, fully quit, and reload the native save.
-6. Test at least one allocation above #255, either by providing five species or
+5. Use Battle Spawner 0.4.0 `ACTION = GIVE MON` to place normal and shiny
+   individuals, then test back sprites and every declared evolution method.
+6. Deposit and withdraw it, save, fully quit, and reload the native save.
+7. Test at least one allocation above #255, either by providing five species or
    by testing alongside another pack.
-7. If the pack adds a natural placement, encounter it in every declared time
+8. If the pack adds a natural placement, encounter it in every declared time
    or terrain and check that the Pokedex area page lists the route.
-8. Never disable the pack while one of its species remains in a party or box.
-9. For link play, use identical framework and species-pack versions on both
+9. Run every registered gift, stationary encounter, trainer, and trade twice;
+   the first should complete and the second should use its already-done path.
+10. Never disable the pack while one of its species remains in a party or box.
+11. For link play, use identical framework and species-pack versions on both
    devices and declare `"affects_link": true` in the species-pack manifest.
