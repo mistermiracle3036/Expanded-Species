@@ -142,10 +142,12 @@ The vanilla pool has weight 100. One custom entry with weight 1 therefore has
 a 1/101 chance when an encounter triggers; it does not change how often steps
 trigger battles.
 
-Expanded Species also repairs Gold's Pokédex AREA renderer so grass and
-water placements display their flashing nest marker and route name. The
-encounter lookup remains Gold's native lookup; the compatibility bridge only
-routes the returned landmark index through Gold's actual landmark registry.
+On older Gold builds, Expanded Species also repairs the Pokédex AREA renderer
+so grass and water placements display their flashing nest marker and route
+name. **Current gen1recomp releases fix this natively**, and the bridge stands
+itself down when they do — it is only there so the AREA page still works on the
+engine versions this mod supports. Either way the encounter lookup is Gold's
+own; the bridge never replaces it.
 
 Gold 0.1.94 also has safe helpers for fishing, active swarm tables, and the
 Bug-Catching Contest:

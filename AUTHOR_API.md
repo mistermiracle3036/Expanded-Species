@@ -276,7 +276,7 @@ future framework versions.
 | `localizedSpecies` | Namespaced name, kind and Pokédex text | species definition fields |
 | `cosmeticForms` | Per-individual named forms that survive evolution, trade, hatching and save/reload | `setForm`, `getForm`, `forms`, `formInfo` |
 | `goldFormScreens` | Gold screen bridges that route form art across battle, Summary, PC, Dex, trade, Hall of Fame, hatch and Photo Studio | `formScreenStatus` |
-| `goldNestScreen` | Pokédex AREA nest marker and route-name bridge | `nestScreenStatus` |
+| `goldNestScreen` | Pokédex AREA nest marker and route-name bridge, for older engines that need it | `nestScreenStatus` |
 | `extendedGrass` | Added grass encounters that do not replace a route's vanilla slots | `addGrassEncounter` |
 | `extendedWater` | Added surfing encounters | `addWaterEncounter` |
 | `extendedSwarms` | Swarm-only grass and water rows | `addSwarmGrassEncounter`, `addSwarmWaterEncounter` |
@@ -442,17 +442,23 @@ also uses the official `encounter.roll` hook for selection.
 
 Gold 0.1.94's nest finder already reads the merged `gen2Encounters` tables, but
 its AREA renderer looks up the resulting index in the wrong landmark field.
-Expanded Species supplies the correct `gen2Landmarks` table only while
-that screen draws. Author tools can verify the adapter after `game.ready`:
+Expanded Species supplies the correct `gen2Landmarks` table only while that
+screen draws, and only on engines that need it. **Current gen1recomp releases
+read `gen2Landmarks` directly**, in which case the bridge delegates untouched
+and `installed` may be false with nothing wrong — treat it as informational
+rather than asserting on it in a pack. Author tools can check after
+`game.ready`:
 
 ```lua
 local status = expanded.exports.nestScreenStatus()
-assert(status.installed, status.error or "Gold nest screen bridge unavailable")
+-- informational: on a current engine the bridge is unnecessary
+mod.log:info("nest bridge installed=%s", tostring(status.installed))
 ```
 
-The `goldNestScreen` capability advertises this correction. It affects grass
-and swimming nests only, matching Gold's original rules; fishing, Headbutt,
-Rock Smash, Bug Contest and swarm-only placements do not create Pokédex nests.
+The `goldNestScreen` capability advertises that this correction is available.
+It affects grass and swimming nests only, matching Gold's original rules;
+fishing, Headbutt, Rock Smash, Bug Contest and swarm-only placements do not
+create Pokédex nests.
 
 ### Swarm-only grass and water
 

@@ -70,11 +70,16 @@ not provide safe registry-based runtime seams for them.
 
 ## Why did the Pokédex AREA page show no nest marker or route name?
 
-Gold 0.1.94 correctly found grass and swimming nests but its AREA renderer read
-the Gen 1 landmark field instead of Gold's `gen2Landmarks` registry. Expanded
-Species bridges that lookup, so the flashing marker and route name appear
-for both vanilla and custom species. The permanent one-line engine correction
-remains tracked for upstream.
+On older Gold builds the AREA renderer found grass and swimming nests
+correctly but read the Gen 1 landmark field instead of Gold's `gen2Landmarks`
+registry, so neither the marker nor the route name appeared.
+
+**Current gen1recomp releases fix this in the engine**, and no bridge is
+involved on those builds. On the older versions this mod still supports,
+Expanded Species bridges the lookup so the flashing marker and route name
+appear for both vanilla and custom species. If you are on a recent engine and
+the AREA page misbehaves, that is worth reporting rather than assuming it is
+this mod.
 
 ## How do I give a custom Pokemon its own colors?
 
