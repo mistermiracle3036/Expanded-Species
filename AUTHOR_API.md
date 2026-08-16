@@ -248,6 +248,53 @@ into it deliberately by changing both its dependency range and `getApi` call.
 The legacy `supports(name)` and `capabilities()` queries remain useful for
 features that are optional rather than required.
 
+`supportsApi(version)` answers whether a facade number is served at all. It is
+the cheap check behind `getApi`, and returns a plain boolean:
+
+```lua
+if expanded.exports.supportsApi(1) then ... end
+```
+
+### The capability names
+
+These are the exact strings `supports`, `requireCapabilities` and
+`capabilities()` understand. **Require the named features your pack uses rather
+than comparing release numbers** — that is what keeps a pack working across
+future framework versions.
+
+| Capability | What it covers | Main entry points |
+|---|---|---|
+| `preflight` | Validate a definition without writing content | `preflight` |
+| `safeDefaults` | Optional species fields are filled in for you (`types`, `catchRate`, `baseExp`, …) | applied by `preflight` and `register` |
+| `batchRegistration` | Register a whole pack, failing before the first write | `registerAll` |
+| `capabilityQueries` | This negotiation surface itself | `capabilities`, `supports`, `supportsApi`, `getApi`, `requireCapabilities` |
+| `metadataQueries` | Inspect what is registered at runtime | `all`, `info`, `owner`, `byProvider`, `virtualIndex`, `nextIndex` |
+| `diagnostics` | Check a merged record, its sprites, allocation, Dex row, icon, palette, cry and evolutions | `diagnose`, `diagnoseTrainerPatches` |
+| `customDex` | Custom Pokédex rows for species above #255 | species definition fields |
+| `customPalettes` | Per-species battle palettes | species definition fields |
+| `localizedSpecies` | Namespaced name, kind and Pokédex text | species definition fields |
+| `cosmeticForms` | Per-individual named forms that survive evolution, trade, hatching and save/reload | `setForm`, `getForm`, `forms`, `formInfo` |
+| `goldFormScreens` | Gold screen bridges that route form art across battle, Summary, PC, Dex, trade, Hall of Fame, hatch and Photo Studio | `formScreenStatus` |
+| `goldNestScreen` | Pokédex AREA nest marker and route-name bridge | `nestScreenStatus` |
+| `extendedGrass` | Added grass encounters that do not replace a route's vanilla slots | `addGrassEncounter` |
+| `extendedWater` | Added surfing encounters | `addWaterEncounter` |
+| `extendedSwarms` | Swarm-only grass and water rows | `addSwarmGrassEncounter`, `addSwarmWaterEncounter` |
+| `extendedFishing` | Old/Good/Super Rod additions | `addFishingEncounter` |
+| `extendedBugContest` | Bug-Catching Contest pool additions | `addBugContestEncounter` |
+| `gifts` | One-time gift Pokémon with party-full and full-storage handling | `registerGift` |
+| `scriptedStationary` | Stationary encounters with loss retry and completion state | `registerStationaryEncounter` |
+| `scriptedTrainers` | Custom trainers with parties, moves, items, forms and dialogue | `registerTrainerEncounter` |
+| `scriptedTrades` | NPC trades above #255, preserving nickname, OT, ID, item, DVs and form | `registerTrade` |
+| `vanillaTrainerPatches` | Insert, append or replace members of an existing Gold trainer without touching its NPC, dialogue, flags or rewards | `patchVanillaTrainer`, `trainerPatches`, `diagnoseTrainerPatches` |
+| `runtimeWildBattles` | Start a custom wild battle or hand over a Pokémon at runtime | `startWildBattle`, `givePokemon` |
+| `saveGuardian` | Quarantine and restore Pokémon whose species pack is missing | `guardSave`, `missingCount`, `missingInfo` |
+| `checkpointProfiles` | Record and compare the enabled-content set | `checkpointProfile`, `compareCheckpointProfile` |
+| `compatibilityReports` | Provider/species compatibility summary | `compatibilityReport`, `formatCompatibilityReport` |
+
+A capability is only ever **added**, never removed or repurposed, for the whole
+`getApi(1)` contract. An unknown name simply reports as unsupported, so probing
+for a capability this framework has never heard of is safe.
+
 ## Organizing a larger species pack
 
 Yes, custom Pokemon definitions can be split out of `main.lua`. A useful pack
@@ -871,6 +918,15 @@ local count = expanded.exports.missingCount()
 for _, row in ipairs(expanded.exports.missingInfo()) do
   mod.log:warn("missing %s from %s", row.species, row.provider or "unknown pack")
 end
+```
+
+Guarding normally runs itself on Gold's `save.loading` event. `guardSave(save)`
+runs the same pass on demand — omit the argument to use the live save — and is
+intended for tools and tests rather than ordinary pack code:
+
+```lua
+expanded.exports.guardSave()          -- the live save
+expanded.exports.guardSave(someSave)  -- an explicit one
 ```
 
 The `saveGuardian` capability advertises this behavior. Authors must still keep
