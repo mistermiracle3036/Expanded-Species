@@ -29,7 +29,7 @@ Pokedex, icon, palette, breeding, and save structures.
 
 ## What happens if a species pack is removed?
 
-Expanded Species 0.5 moves Pokemon whose definitions are missing into private
+Expanded Species 0.5 and newer move Pokemon whose definitions are missing into private
 framework save data before Gold opens the world. This internal **MISSING**
 storage is not shown in the PC and cannot be interacted with. Re-enable or
 reinstall the pack and reload the save; complete records are restored to their
@@ -61,12 +61,36 @@ Vanilla as a whole has weight 100. If all custom entries on a route total 20,
 custom species collectively appear in 20/120 of triggered encounters. The
 original Gold slot ratios stay unchanged inside the remaining 100/120.
 
+## Can custom species appear while fishing, during swarms, or in the Bug Contest?
+
+Yes. Expanded Species 0.6 adds owned helpers for fishing rods, swarm-only
+grass/water rows, and the global Bug-Catching Contest pool. Headbutt, Rock
+Smash, and additional roaming slots are not exposed because Gold 0.1.94 does
+not provide safe registry-based runtime seams for them.
+
 ## How do I give a custom Pokemon its own colors?
 
 Add `palette = { normal = {...}, shiny = {...} }` to its Expanded Species
 definition. Each form supplies two RGB triples; Gold adds white and black.
 Use `paletteFallback = "TANGELA"` to borrow a vanilla palette, or omit both to
 use Ditto. A `trueColor = true` species uses the PNG's colors instead.
+
+## Can one species have cosmetic forms?
+
+Yes. Expanded Species 0.6 stores a named form on each individual Pokemon and
+can route alternate battle, Summary, and party-icon art. Gold 0.1.94 still
+shows base species art in PC Box, Pokedex, evolution, trade, and Hall of Fame,
+and cannot choose a palette or cry per individual. Use true-color form art when
+a form needs different colors.
+
+## How can a pack report compatibility or protect checkpoints?
+
+Run `formatCompatibilityReport(mod)` after `game.ready` for a copyable summary
+of species, placements, trainer patches, engine versions, and hidden records.
+Checkpoint tools can store `checkpointProfile()` and compare it before restore.
+Expanded Species reruns Save Guardian after a successful restore, but Gold
+0.1.94 has no pre-restore event, so automatic preflight requires an upstream
+engine addition.
 
 ## Can a species pack split Pokemon into separate Lua files?
 

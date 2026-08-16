@@ -1,12 +1,21 @@
-local VERSION = "0.5.0"
+local VERSION = "0.6.0"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
 local SAVE_GUARDIAN_FORMAT = 1
+local CHECKPOINT_PROFILE_FORMAT = 1
 local PARTY_SIZE = 6
 local NUM_BOXES = 14
 local MONS_PER_BOX = 20
 local GRASS_TIMES = { "MORN", "DAY", "NITE" }
+local FISHING_RODS = {
+    OLD_ROD = "OLD_ROD",
+    GOOD_ROD = "GOOD_ROD",
+    SUPER_ROD = "SUPER_ROD",
+    old = "OLD_ROD",
+    good = "GOOD_ROD",
+    super = "SUPER_ROD",
+}
 local SHINY_DVS = { attack = 14, defense = 10, speed = 10, special = 10 }
 local TRAINER_TYPES = {
     TRAINERTYPE_NORMAL = true,
@@ -27,11 +36,18 @@ local CAPABILITIES = {
     capabilityQueries = true,
     customDex = true,
     customPalettes = true,
+    checkpointProfiles = true,
+    compatibilityReports = true,
+    cosmeticForms = true,
     diagnostics = true,
+    extendedBugContest = true,
+    extendedFishing = true,
     extendedGrass = true,
+    extendedSwarms = true,
     extendedWater = true,
     gifts = true,
     metadataQueries = true,
+    localizedSpecies = true,
     preflight = true,
     runtimeWildBattles = true,
     scriptedStationary = true,
@@ -122,10 +138,41 @@ local function customEncounter(pool, random, pokemon)
                 species = placement.species,
                 level = placement.level,
                 slot = placement.baseSlots + index,
-            }
+            }, placement
         end
     end
     return nil
+end
+
+local function customContestEncounter(pool, random, pokemon)
+    local picked, placement = customEncounter(pool, random, pokemon)
+    if not picked then return nil end
+    local minimum = placement and placement.minLevel or picked.level
+    local maximum = placement and placement.maxLevel or minimum
+    if maximum > minimum then
+        picked.level = minimum + encounterRandom(random, maximum - minimum + 1)
+    else
+        picked.level = minimum
+    end
+    return picked
+end
+
+local function normalizedRods(placement)
+    local supplied = placement.rods
+    if supplied == nil and placement.rod ~= nil then supplied = { placement.rod } end
+    if supplied == nil then supplied = { "OLD_ROD", "GOOD_ROD", "SUPER_ROD" } end
+    assert(type(supplied) == "table" and #supplied > 0,
+        "Expanded Species: fishing rods must be a non-empty list")
+    local rods, seen = {}, {}
+    for _, value in ipairs(supplied) do
+        local rod = FISHING_RODS[value]
+        assert(rod, "Expanded Species: unknown fishing rod " .. tostring(value))
+        if not seen[rod] then
+            rods[#rods + 1] = rod
+            seen[rod] = true
+        end
+    end
+    return rods
 end
 
 local function markerFor(definition)
@@ -401,6 +448,49 @@ local function speciesPreflight(providerMod, definition)
         addIssue(errors, "spriteBack", "must be an owned asset path")
     end
 
+    if record.forms ~= nil then
+        if type(record.forms) ~= "table" then
+            addIssue(errors, "forms", "must be a map keyed by form id")
+        else
+            for formId, form in pairs(record.forms) do
+                local path = "forms." .. tostring(formId)
+                if type(formId) ~= "string" or formId == "" then
+                    addIssue(errors, path, "form ids must be non-empty strings")
+                elseif type(form) ~= "table" then
+                    addIssue(errors, path, "must be a table")
+                else
+                    local visual = false
+                    for _, field in ipairs({ "spriteFront", "spriteBack", "icon" }) do
+                        local value = form[field]
+                        if value ~= nil then
+                            if type(value) ~= "string" or value == "" then
+                                addIssue(errors, path .. "." .. field,
+                                    "must be an owned asset path")
+                            else
+                                visual = true
+                            end
+                        end
+                    end
+                    if form.trueColor ~= nil and type(form.trueColor) ~= "boolean" then
+                        addIssue(errors, path .. ".trueColor", "must be true or false")
+                    end
+                    if not visual then
+                        addIssue(warnings, path,
+                            "has no spriteFront, spriteBack, or icon override")
+                    end
+                end
+            end
+        end
+    end
+    if record.defaultForm ~= nil then
+        if type(record.defaultForm) ~= "string" or record.defaultForm == "" then
+            addIssue(errors, "defaultForm", "must be a non-empty form id")
+        elseif type(record.forms) ~= "table"
+            or type(record.forms[record.defaultForm]) ~= "table" then
+            addIssue(errors, "defaultForm", "does not name a declared form")
+        end
+    end
+
     if record.index ~= nil then
         addIssue(warnings, "index", "is ignored; Expanded Species allocates it")
     end
@@ -452,6 +542,10 @@ local function normalizeForRegistration(providerMod, definition)
     marker.iconFallback = record.iconFallback or marker.iconFallback
     marker.palette = copy(record.palette or marker.palette)
     marker.paletteFallback = record.paletteFallback or marker.paletteFallback
+    marker.forms = copy(record.forms or marker.forms)
+    marker.defaultForm = record.defaultForm or marker.defaultForm
+    marker.sourceName = marker.sourceName or record.name
+    marker.sourceDexEntry = copy(marker.sourceDexEntry or marker.dexEntry)
     record.expandedSpecies = marker
 
     -- The Gold schema validates the optional cartridge index as one byte. Leave it
@@ -466,7 +560,11 @@ return function(mod)
         species = {},
         order = {},
         nextIndex = FIRST_CUSTOM_DEX,
-        encounters = { grass = {}, water = {} },
+        encounters = {
+            grass = {}, water = {},
+            swarmGrass = {}, swarmWater = {},
+            fishing = {}, bugContest = {},
+        },
         encounterKeys = {},
         providerSequences = {},
         scriptCommands = {},
@@ -504,6 +602,91 @@ return function(mod)
         if save and type(save.set) == "function" then
             save:set(key, value)
         end
+    end
+
+    local function providerActive(providerId)
+        if type(providerId) ~= "string" or providerId == "" then return false end
+        if type(mod.find) ~= "function" then return true end
+        return mod.find(providerId) ~= nil
+    end
+
+    local function contentProfile(pokemon)
+        local rows = {}
+        for speciesId, definition in pairs(pokemon or {}) do
+            local marker = markerFor(definition)
+            if type(definition) == "table" and isCustomSpecies(definition) then
+                rows[#rows + 1] = {
+                    id = speciesId,
+                    provider = marker and marker.provider or nil,
+                }
+            end
+        end
+        table.sort(rows, function(left, right)
+            if left.id == right.id then
+                return tostring(left.provider or "") < tostring(right.provider or "")
+            end
+            return left.id < right.id
+        end)
+        local signature = {}
+        for _, row in ipairs(rows) do
+            signature[#signature + 1] = tostring(row.provider or "?") .. ":" .. row.id
+        end
+        return {
+            format = CHECKPOINT_PROFILE_FORMAT,
+            framework = VERSION,
+            species = rows,
+            signature = table.concat(signature, "|"),
+        }
+    end
+
+    local function compareContentProfiles(saved, current)
+        local result = { ok = true, missing = {}, added = {}, changed = {} }
+        if type(saved) ~= "table" or type(saved.species) ~= "table"
+            or saved.format ~= CHECKPOINT_PROFILE_FORMAT then
+            result.ok = false
+            result.unknown = true
+            result.expectedFormat = CHECKPOINT_PROFILE_FORMAT
+            result.actualFormat = type(saved) == "table" and saved.format or nil
+            return result
+        end
+        local old, now = {}, {}
+        for _, row in ipairs(saved.species or {}) do
+            if type(row) == "table" and type(row.id) == "string" then
+                old[row.id] = row.provider or false
+            end
+        end
+        for _, row in ipairs((current and current.species) or {}) do
+            if type(row) == "table" and type(row.id) == "string" then
+                now[row.id] = row.provider or false
+            end
+        end
+        for speciesId, provider in pairs(old) do
+            if now[speciesId] == nil then
+                result.missing[#result.missing + 1] = {
+                    id = speciesId, provider = provider or nil,
+                }
+            elseif now[speciesId] ~= provider then
+                result.changed[#result.changed + 1] = {
+                    id = speciesId, before = provider or nil,
+                    current = now[speciesId] or nil,
+                }
+            end
+        end
+        for speciesId, provider in pairs(now) do
+            if old[speciesId] == nil then
+                result.added[#result.added + 1] = {
+                    id = speciesId, provider = provider or nil,
+                }
+            end
+        end
+        local function sortRows(rows)
+            table.sort(rows, function(left, right) return left.id < right.id end)
+        end
+        sortRows(result.missing)
+        sortRows(result.added)
+        sortRows(result.changed)
+        result.ok = #result.missing == 0 and #result.changed == 0
+        return result
     end
 
     -- Missing species cannot stay in Gold's ordinary party/box/Day-Care
@@ -845,19 +1028,25 @@ return function(mod)
     local function guardianPass(save, game)
         local pokemon = game and game.data and game.data.pokemon
         if type(save) ~= "table" or type(pokemon) ~= "table" then
-            return { quarantined = 0, restored = 0, remaining = 0 }
+            return { quarantined = 0, restored = 0, remaining = 0,
+                compatibility = { ok = true, unknown = true,
+                    missing = {}, added = {}, changed = {} } }
         end
         local guardian = saveGuardian(save)
+        local currentProfile = contentProfile(pokemon)
+        local compatibility = compareContentProfiles(guardian.profile, currentProfile)
         catalogLiveSpecies(guardian, pokemon)
         local restored = restoreAvailable(save, pokemon, guardian)
         local quarantined = quarantineMissing(save, pokemon, guardian)
         eachActiveSaveMon(save, function(mon)
             stampOwnedMon(mon, pokemon, guardian.catalog)
         end)
+        guardian.profile = currentProfile
         return {
             quarantined = quarantined,
             restored = restored,
             remaining = #guardian.missing,
+            compatibility = compatibility,
         }
     end
 
@@ -881,6 +1070,32 @@ return function(mod)
         return wanted and copy(SHINY_DVS) or nil
     end
 
+    local function formDefinition(speciesId, formId)
+        if type(formId) ~= "string" or formId == "" then return nil end
+        local game = liveGame()
+        local definition = game and game.data and game.data.pokemon
+            and game.data.pokemon[speciesId]
+        local marker = markerFor(definition)
+        return marker and type(marker.forms) == "table" and marker.forms[formId]
+            or nil
+    end
+
+    local function setMonForm(mon, formId)
+        assert(type(mon) == "table" and type(mon.species) == "string",
+            "Expanded Species: setForm needs a Pokemon record")
+        if formId == nil or formId == false or formId == "" then
+            mon.expandedForm = nil
+            return mon
+        end
+        assert(type(formId) == "string",
+            "Expanded Species: form id must be a string")
+        assert(formDefinition(mon.species, formId),
+            ("Expanded Species: unknown form %s for %s")
+                :format(formId, mon.species))
+        mon.expandedForm = formId
+        return mon
+    end
+
     local function buildMon(speciesId, level, opts)
         opts = opts or {}
         local game = liveGame()
@@ -893,6 +1108,7 @@ return function(mod)
             moves = opts.moves,
             happiness = opts.happiness,
         })
+        if mon and opts.form ~= nil then setMonForm(mon, opts.form) end
         return mon
     end
 
@@ -945,8 +1161,7 @@ return function(mod)
     end
 
     local function trainerPatchProviderActive(patch)
-        if type(mod.find) ~= "function" then return true end
-        return mod.find(patch.provider) ~= nil
+        return providerActive(patch.provider)
     end
 
     local function buildTrainerPartyMember(change)
@@ -963,7 +1178,9 @@ return function(mod)
                 },
             },
         })
-        return party and party[1] or nil
+        local mon = party and party[1] or nil
+        if mon and change.form ~= nil then setMonForm(mon, change.form) end
+        return mon
     end
 
     local function applyTrainerPatches(next_, trainerClass, trainerMember, party)
@@ -973,12 +1190,28 @@ return function(mod)
 
         local classId, memberId = trainerTargetIds(trainerClass, trainerMember)
         local patches = sortedTrainerPatches(classId, memberId)
-        if #patches == 0 then return result end
 
         -- Copy only the party array. Each existing member is already a
         -- battle-local mon and should retain identity for downstream hooks.
         local out = {}
         for index, mon in ipairs(result) do out[index] = mon end
+        local decorated = false
+        for providerId, helpers in pairs(state.scriptHelpers.trainer) do
+            if providerActive(providerId) then
+                for _, spec in pairs(helpers) do
+                    if spec.classId == classId and spec.memberId == memberId then
+                        for index, row in ipairs(spec.party or {}) do
+                            if out[index] and row.form ~= nil then
+                                setMonForm(out[index], row.form)
+                                decorated = true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        if #patches == 0 then return decorated and out or result end
+
         local replaced = {}
 
         for _, patch in ipairs(patches) do
@@ -1109,11 +1342,12 @@ return function(mod)
     end
 
     local function encounterPool(kind, mapId, time)
-        if kind == "grass" then
-            local maps = state.encounters.grass[mapId]
+        if kind == "grass" or kind == "swarmGrass" then
+            local maps = state.encounters[kind][mapId]
             return maps and maps[time]
         end
-        return state.encounters.water[mapId]
+        local pools = state.encounters[kind]
+        return pools and pools[mapId]
     end
 
     local function addEncounterPlacement(providerMod, placement, kind)
@@ -1175,14 +1409,14 @@ return function(mod)
         local function commit(placementRow)
             state.encounterKeys[placementRow.key] = true
             local pool
-            if kind == "grass" then
-                state.encounters.grass[mapId] = state.encounters.grass[mapId] or {}
-                local maps = state.encounters.grass[mapId]
+            if kind == "grass" or kind == "swarmGrass" then
+                state.encounters[kind][mapId] = state.encounters[kind][mapId] or {}
+                local maps = state.encounters[kind][mapId]
                 maps[placementRow.time] = maps[placementRow.time] or {}
                 pool = maps[placementRow.time]
             else
-                state.encounters.water[mapId] = state.encounters.water[mapId] or {}
-                pool = state.encounters.water[mapId]
+                state.encounters[kind][mapId] = state.encounters[kind][mapId] or {}
+                pool = state.encounters[kind][mapId]
             end
             pool[#pool + 1] = placementRow
             table.sort(pool, function(left, right)
@@ -1193,7 +1427,7 @@ return function(mod)
             end)
         end
 
-        if kind == "grass" then
+        if kind == "grass" or kind == "swarmGrass" then
             local requestedTimes = placement.times
             if placement.time ~= nil then
                 assert(requestedTimes == nil,
@@ -1224,12 +1458,12 @@ return function(mod)
                 }
                 prepare(time, 7)
             end
-            registry:patch("grass", { [mapId] = { slots = slotsPatch } })
+            registry:patch(kind, { [mapId] = { slots = slotsPatch } })
         else
             assert(type(mapRow.slots) == "table",
                 "Expanded Species: " .. mapId .. " has no water slots")
             prepare(nil, 3)
-            registry:patch("water", {
+            registry:patch(kind, {
                 [mapId] = {
                     slots = {
                         __append = { { level = level, species = speciesId } },
@@ -1249,6 +1483,92 @@ return function(mod)
             level = level,
             weight = weight,
         }
+    end
+
+    local function addFishingPlacement(providerMod, placement)
+        assert(type(providerMod) == "table" and type(providerMod.id) == "string"
+            and providerMod.id ~= "",
+            "Expanded Species: fishing provider mod is required")
+        assert(type(placement) == "table",
+            "Expanded Species: fishing placement must be a table")
+        local mapId = placement.map
+        local speciesId = placement.species
+        local level = placement.level
+        local weight = placement.weight
+        assert(type(mapId) == "string" and mapId ~= "",
+            "Expanded Species: fishing placement requires a map id")
+        assert(type(speciesId) == "string" and speciesId ~= "",
+            "Expanded Species: fishing placement requires a species id")
+        assert(isInteger(level) and level <= 100,
+            "Expanded Species: fishing level must be an integer from 1 to 100")
+        assert(isInteger(weight),
+            "Expanded Species: fishing weight must be a positive integer")
+        local rods = normalizedRods(placement)
+        local sequence = (state.providerSequences[providerMod.id] or 0) + 1
+        for _, rod in ipairs(rods) do
+            local key = table.concat({ providerMod.id, "fishing", mapId, rod,
+                speciesId, tostring(level) }, "|")
+            assert(not state.encounterKeys[key],
+                "Expanded Species: duplicate fishing placement " .. key)
+            state.encounterKeys[key] = true
+            state.encounters.fishing[mapId] = state.encounters.fishing[mapId] or {}
+            local byRod = state.encounters.fishing[mapId]
+            byRod[rod] = byRod[rod] or {}
+            byRod[rod][#byRod[rod] + 1] = {
+                key = key, provider = providerMod.id, sequence = sequence,
+                map = mapId, rod = rod, species = speciesId,
+                level = level, weight = weight, baseSlots = 0,
+            }
+            table.sort(byRod[rod], function(left, right)
+                if left.provider ~= right.provider then
+                    return left.provider < right.provider
+                end
+                return left.sequence < right.sequence
+            end)
+        end
+        state.providerSequences[providerMod.id] = sequence
+        return { map = mapId, species = speciesId, level = level,
+            weight = weight, rods = copy(rods) }
+    end
+
+    local function addBugContestPlacement(providerMod, placement)
+        assert(type(providerMod) == "table" and type(providerMod.id) == "string"
+            and providerMod.id ~= "",
+            "Expanded Species: Bug Contest provider mod is required")
+        assert(type(placement) == "table",
+            "Expanded Species: Bug Contest placement must be a table")
+        local speciesId = placement.species
+        local minimum = placement.minLevel or placement.level
+        local maximum = placement.maxLevel or minimum
+        local weight = placement.weight
+        assert(type(speciesId) == "string" and speciesId ~= "",
+            "Expanded Species: Bug Contest placement requires a species id")
+        assert(isInteger(minimum) and minimum <= 100,
+            "Expanded Species: Bug Contest minLevel must be from 1 to 100")
+        assert(isInteger(maximum) and maximum >= minimum and maximum <= 100,
+            "Expanded Species: Bug Contest maxLevel must be at least minLevel and at most 100")
+        assert(isInteger(weight),
+            "Expanded Species: Bug Contest weight must be a positive integer")
+        local key = table.concat({ providerMod.id, "bugContest", speciesId,
+            tostring(minimum), tostring(maximum) }, "|")
+        assert(not state.encounterKeys[key],
+            "Expanded Species: duplicate Bug Contest placement " .. key)
+        local sequence = (state.providerSequences[providerMod.id] or 0) + 1
+        state.encounterKeys[key] = true
+        state.encounters.bugContest[#state.encounters.bugContest + 1] = {
+            key = key, provider = providerMod.id, sequence = sequence,
+            species = speciesId, level = minimum, minLevel = minimum,
+            maxLevel = maximum, weight = weight, baseSlots = 0,
+        }
+        table.sort(state.encounters.bugContest, function(left, right)
+            if left.provider ~= right.provider then
+                return left.provider < right.provider
+            end
+            return left.sequence < right.sequence
+        end)
+        state.providerSequences[providerMod.id] = sequence
+        return { species = speciesId, minLevel = minimum,
+            maxLevel = maximum, weight = weight }
     end
 
     local function helperBucket(kind, providerMod)
@@ -1477,6 +1797,40 @@ return function(mod)
         return #ordered
     end
 
+    local function localizeSpecies(pokemon, customIds)
+        local ok, Strings = pcall(require, "src.core.Strings")
+        if not ok or type(Strings) ~= "table" or type(Strings.lookup) ~= "function" then
+            return 0
+        end
+        local changed = 0
+        for _, speciesId in ipairs(customIds) do
+            local definition = pokemon[speciesId]
+            local marker = markerFor(definition)
+            if marker then
+                marker.sourceName = marker.sourceName or definition.name
+                local name = marker.sourceName
+                if type(name) == "string" then
+                    local translated = Strings.lookup(name,
+                        "expanded_species." .. speciesId .. ".name")
+                    if translated ~= definition.name then changed = changed + 1 end
+                    definition.name = translated
+                end
+
+                marker.sourceDexEntry = copy(marker.sourceDexEntry
+                    or marker.dexEntry or definition.dexEntry or {})
+                marker.dexEntry = copy(marker.sourceDexEntry)
+                for _, field in ipairs({ "kind", "text", "text2" }) do
+                    local source = marker.sourceDexEntry[field]
+                    if type(source) == "string" then
+                        marker.dexEntry[field] = Strings.lookup(source,
+                            "expanded_species." .. speciesId .. ".dex." .. field)
+                    end
+                end
+            end
+        end
+        return changed
+    end
+
     local function reconcile(game)
         local data = game and game.data
         local pokemon = data and data.pokemon
@@ -1500,6 +1854,7 @@ return function(mod)
             nextIndex = nextIndex + 1
         end
 
+        localizeSpecies(pokemon, customIds)
         rebuildPokedex(data, pokemon, customIds)
         installVisuals(data, pokemon, customIds)
         installTrainerVisuals(data)
@@ -1530,8 +1885,10 @@ return function(mod)
         virtualSpeciesIndices = true,
         expandedSpeciesMetadata = true,
         customGen2PokedexRows = true,
+        customPokemonForms = true,
         extendedEncounterWeights = true,
         hiddenMissingSpeciesStorage = true,
+        checkpointContentProfiles = true,
         scriptedSpeciesHelpers = true,
     }
     mod.exports.decorates = {
@@ -1629,6 +1986,22 @@ return function(mod)
         return addEncounterPlacement(providerMod, placement, "water")
     end
 
+    function mod.exports.addSwarmGrassEncounter(providerMod, placement)
+        return addEncounterPlacement(providerMod, placement, "swarmGrass")
+    end
+
+    function mod.exports.addSwarmWaterEncounter(providerMod, placement)
+        return addEncounterPlacement(providerMod, placement, "swarmWater")
+    end
+
+    function mod.exports.addFishingEncounter(providerMod, placement)
+        return addFishingPlacement(providerMod, placement)
+    end
+
+    function mod.exports.addBugContestEncounter(providerMod, placement)
+        return addBugContestPlacement(providerMod, placement)
+    end
+
     function mod.exports.givePokemon(speciesId, level, opts)
         return givePokemon(speciesId, level, opts)
     end
@@ -1643,6 +2016,8 @@ return function(mod)
             "Expanded Species: gift species id is required")
         assert(isInteger(spec.level) and spec.level <= 100,
             "Expanded Species: gift level must be an integer from 1 to 100")
+        assert(spec.form == nil or (type(spec.form) == "string" and spec.form ~= ""),
+            "Expanded Species: gift form must be a string id")
         return registerScriptHelper(providerMod, "gift", spec)
     end
 
@@ -1653,6 +2028,8 @@ return function(mod)
             "Expanded Species: stationary species id is required")
         assert(isInteger(spec.level) and spec.level <= 100,
             "Expanded Species: stationary level must be an integer from 1 to 100")
+        assert(spec.form == nil or (type(spec.form) == "string" and spec.form ~= ""),
+            "Expanded Species: stationary form must be a string id")
         return registerScriptHelper(providerMod, "stationary", spec)
     end
 
@@ -1671,6 +2048,10 @@ return function(mod)
             assert(isInteger(member.level) and member.level <= 100,
                 "Expanded Species: trainer party row " .. index
                     .. " level must be 1 to 100")
+            assert(member.form == nil
+                    or (type(member.form) == "string" and member.form ~= ""),
+                "Expanded Species: trainer party row " .. index
+                    .. " form must be a string id")
         end
         local trainerType = spec.trainerType or "TRAINERTYPE_NORMAL"
         assert(TRAINER_TYPES[trainerType],
@@ -1688,6 +2069,11 @@ return function(mod)
             or (providerMod.id .. "_" .. spec.id .. "_CLASS"):upper()
         local memberId = spec.memberId
             or (providerMod.id .. "_" .. spec.id):upper()
+        local registryParty = {}
+        for index, member in ipairs(spec.party) do
+            registryParty[index] = copy(member)
+            registryParty[index].form = nil
+        end
         local classRecord = {
             id = classId,
             name = spec.className or "TRAINER",
@@ -1702,7 +2088,7 @@ return function(mod)
                     id = memberId,
                     name = spec.trainerName or "CUSTOM",
                     trainerType = trainerType,
-                    party = copy(spec.party),
+                    party = registryParty,
                 },
             },
         }
@@ -1764,6 +2150,10 @@ return function(mod)
                             .. moveIndex .. " must be a string id")
                 end
             end
+            assert(source.form == nil
+                    or (type(source.form) == "string" and source.form ~= ""),
+                "Expanded Species: trainer change " .. index
+                    .. " form must be a string id")
             changes[#changes + 1] = {
                 action = action,
                 position = action == "append" and nil or source.position,
@@ -1771,6 +2161,7 @@ return function(mod)
                 level = source.level,
                 item = source.item,
                 moves = copy(source.moves),
+                form = source.form,
             }
         end
 
@@ -1982,6 +2373,36 @@ return function(mod)
         return out
     end
 
+    function mod.exports.forms(speciesId)
+        local game = liveGame()
+        local definition = game and game.data and game.data.pokemon
+            and game.data.pokemon[speciesId]
+        local marker = markerFor(definition)
+        return copy(marker and marker.forms or {})
+    end
+
+    function mod.exports.getForm(mon)
+        if type(mon) ~= "table" then return nil end
+        if mon.expandedForm ~= nil then return mon.expandedForm end
+        local game = liveGame()
+        local definition = game and game.data and game.data.pokemon
+            and game.data.pokemon[mon.species]
+        local marker = markerFor(definition)
+        return marker and marker.defaultForm or nil
+    end
+
+    function mod.exports.setForm(mon, formId)
+        return setMonForm(mon, formId)
+    end
+
+    function mod.exports.formInfo(mon)
+        if type(mon) ~= "table" then return nil end
+        local formId = mod.exports.getForm(mon)
+        local form = formDefinition(mon.species, formId)
+        if not form then return nil end
+        return { id = formId, species = mon.species, definition = copy(form) }
+    end
+
     function mod.exports.missingCount()
         local game = liveGame()
         local guardian = game and game.save and saveGuardian(game.save)
@@ -2010,6 +2431,16 @@ return function(mod)
     function mod.exports.guardSave(save)
         local game = liveGame()
         return guardianPass(save or (game and game.save), game)
+    end
+
+    function mod.exports.checkpointProfile()
+        local game = liveGame()
+        local pokemon = game and game.data and game.data.pokemon
+        return contentProfile(pokemon or {})
+    end
+
+    function mod.exports.compareCheckpointProfile(profile)
+        return compareContentProfiles(profile, mod.exports.checkpointProfile())
     end
 
     function mod.exports.diagnose(speciesId)
@@ -2046,6 +2477,18 @@ return function(mod)
         if not (cries and cries[speciesId]) then
             addIssue(warnings, "cry", "no cry is registered under the species id")
         end
+        local marker = markerFor(definition)
+        if marker and type(marker.forms) == "table" then
+            if marker.defaultForm and not marker.forms[marker.defaultForm] then
+                addIssue(errors, "defaultForm", "does not name a declared form")
+            end
+            for formId, form in pairs(marker.forms) do
+                if type(form) == "table" and form.palette ~= nil then
+                    addIssue(warnings, "forms." .. tostring(formId) .. ".palette",
+                        "is not applied per mon by Gold 0.1.94; use true-color form art")
+                end
+            end
+        end
         for index, evolution in ipairs(definition.evolutions or {}) do
             if not (data.pokemon and data.pokemon[evolution.into]) then
                 addIssue(errors, "evolutions[" .. index .. "].into",
@@ -2061,6 +2504,112 @@ return function(mod)
         }
     end
 
+    function mod.exports.compatibilityReport(provider)
+        local wanted = type(provider) == "table" and provider.id or provider
+        local missing = {}
+        for _, row in ipairs(mod.exports.missingInfo()) do
+            if not wanted or row.provider == wanted then
+                missing[#missing + 1] = row
+            end
+        end
+        local report = {
+            ok = true,
+            framework = { id = mod.id, version = VERSION, api = API_VERSION },
+            game = "gold",
+            provider = wanted,
+            species = {},
+            encounters = {},
+            trainerPatches = {},
+            missing = missing,
+            checkpoint = mod.exports.checkpointProfile(),
+            errors = {},
+            warnings = {},
+        }
+        local okVersion, Version = pcall(require, "src.core.Version")
+        if okVersion and type(Version) == "table" then
+            report.engine = Version.engine
+            report.modApi = Version.modApi
+            report.saveFormat = Version.saveFormat
+        end
+
+        local ids = wanted and mod.exports.byProvider(wanted) or mod.exports.all()
+        for _, speciesId in ipairs(ids) do
+            local diagnosis = mod.exports.diagnose(speciesId)
+            report.species[#report.species + 1] = diagnosis
+            for _, issue in ipairs(diagnosis.errors or {}) do
+                report.errors[#report.errors + 1] = speciesId .. ": "
+                    .. issue.path .. " " .. issue.message
+            end
+            for _, issue in ipairs(diagnosis.warnings or {}) do
+                report.warnings[#report.warnings + 1] = speciesId .. ": "
+                    .. issue.path .. " " .. issue.message
+            end
+        end
+
+        local function collect(value, kind, seen)
+            if type(value) ~= "table" then return end
+            if type(value.provider) == "string" and type(value.species) == "string"
+                and (not wanted or value.provider == wanted) then
+                local identity = value.key or table.concat({ kind,
+                    value.provider, value.species, tostring(value.map or "-"),
+                    tostring(value.rod or "-"), tostring(value.time or "-") }, "|")
+                if not seen[identity] then
+                    seen[identity] = true
+                    local row = copy(value)
+                    row.kind = kind
+                    report.encounters[#report.encounters + 1] = row
+                end
+                return
+            end
+            for _, child in pairs(value) do collect(child, kind, seen) end
+        end
+        local seenEncounters = {}
+        for _, kind in ipairs({ "grass", "water", "swarmGrass", "swarmWater",
+                "fishing", "bugContest" }) do
+            collect(state.encounters[kind], kind, seenEncounters)
+        end
+        table.sort(report.encounters, function(left, right)
+            return tostring(left.key or "") < tostring(right.key or "")
+        end)
+
+        for _, patch in pairs(state.trainerPatches) do
+            if not wanted or patch.provider == wanted then
+                report.trainerPatches[#report.trainerPatches + 1] = copy(patch)
+            end
+        end
+        table.sort(report.trainerPatches, function(left, right)
+            if left.provider ~= right.provider then return left.provider < right.provider end
+            return left.id < right.id
+        end)
+
+        if #report.missing > 0 then
+            report.warnings[#report.warnings + 1] = tostring(#report.missing)
+                .. " custom Pokemon are in hidden safe storage"
+        end
+        report.ok = #report.errors == 0 and #report.missing == 0
+        return report
+    end
+
+    function mod.exports.formatCompatibilityReport(provider)
+        local report = mod.exports.compatibilityReport(provider)
+        local lines = {
+            ("Expanded Species %s / engine %s / API %d")
+                :format(VERSION, tostring(report.engine or "unknown"), API_VERSION),
+            ("Provider: %s"):format(tostring(report.provider or "all enabled packs")),
+            ("Species: %d; encounters: %d; trainer patches: %d")
+                :format(#report.species, #report.encounters, #report.trainerPatches),
+            ("Hidden missing Pokemon: %d"):format(#report.missing),
+            report.ok and "STATUS: COMPATIBLE" or "STATUS: NEEDS ATTENTION",
+        }
+        for _, message in ipairs(report.errors) do
+            lines[#lines + 1] = "ERROR: " .. message
+        end
+        for _, message in ipairs(report.warnings) do
+            lines[#lines + 1] = "WARNING: " .. message
+        end
+        return table.concat(lines, "\n"), report
+    end
+
     function mod.exports.helperComplete(providerMod, kind, id)
         return saveGet(providerMod, saveKey(kind, id), false) == true
     end
@@ -2071,13 +2620,53 @@ return function(mod)
     end
 
 
+    local function selectedForm(context)
+        local speciesId = context and context.species
+        local definition = context and context.data and context.data.pokemon
+            and context.data.pokemon[speciesId]
+        local marker = markerFor(definition)
+        if not (marker and type(marker.forms) == "table") then return nil end
+        local mon = context.mon
+        local formId = type(mon) == "table" and mon.expandedForm or nil
+        formId = formId or marker.defaultForm
+        local form = formId and marker.forms[formId] or nil
+        if type(form) ~= "table" then return nil end
+        return form, formId
+    end
+
+    mod.hooks:wrap("pokemon.sprite", function(next_, path, context)
+        local form = selectedForm(context)
+        if form then
+            local field = context.side == "back" and "spriteBack" or "spriteFront"
+            if type(form[field]) == "string" and form[field] ~= "" then
+                path = form[field]
+            end
+            if form.trueColor ~= nil then context.trueColor = form.trueColor == true end
+        end
+        return next_(path, context)
+    end)
+
+    mod.hooks:wrap("pokemon.icon", function(next_, path, context)
+        local form = selectedForm(context)
+        if form and type(form.icon) == "string" and form.icon ~= "" then
+            path = form.icon
+        end
+        return next_(path, context)
+    end)
+
     mod.hooks:wrap("trainer.party", applyTrainerPatches)
 
     mod.hooks:wrap("encounter.roll", function(next_, tables, context)
         local rolled = next_(tables, context)
-        if not rolled or type(tables) ~= "table" or type(context) ~= "table" then
-            return rolled
+        if type(context) ~= "table" then return rolled end
+
+        local pokemon = context.data and context.data.pokemon
+        if context.kind == "contest" then
+            local pool = state.encounters.bugContest
+            if not pool or #pool == 0 then return rolled end
+            return customContestEncounter(pool, context.rng, pokemon) or rolled
         end
+        if not rolled or type(tables) ~= "table" then return rolled end
 
         local kind = context.terrain
         if kind ~= "grass" and kind ~= "water" then
@@ -2093,14 +2682,67 @@ return function(mod)
             time = context.daytime == "DARK" and "NITE"
                 or (context.daytime or "DAY")
         end
-        local pool = encounterPool(kind, mapId, time)
-        if not pool or #pool == 0 then
-            return rolled
+        local pool = {}
+        for _, placement in ipairs(encounterPool(kind, mapId, time) or {}) do
+            pool[#pool + 1] = placement
         end
+        local baseTables = context.data and context.data.gen2Encounters
+        local activeSwarm = type(baseTables) == "table" and tables ~= baseTables
+            and type(tables[kind]) == "table"
+            and type(baseTables[kind]) == "table"
+            and tables[kind][mapId] ~= baseTables[kind][mapId]
+        if activeSwarm then
+            local swarmKind = kind == "grass" and "swarmGrass" or "swarmWater"
+            for _, placement in ipairs(encounterPool(swarmKind, mapId, time) or {}) do
+                pool[#pool + 1] = placement
+            end
+        end
+        if #pool == 0 then return rolled end
 
-        local pokemon = context.data and context.data.pokemon
         return customEncounter(pool, context.rng, pokemon) or rolled
     end)
+
+    mod.hooks:wrap("encounter.fishing", function(next_, rod, mapId, candidates,
+            context)
+        local rolled = next_(rod, mapId, candidates, context)
+        local byRod = state.encounters.fishing[mapId]
+        local pool = byRod and byRod[FISHING_RODS[rod] or rod]
+        if not pool or #pool == 0 then return rolled end
+        local pokemon = context and context.data and context.data.pokemon
+        return customEncounter(pool, context and context.rng, pokemon) or rolled
+    end)
+
+    local function translated(source)
+        local ok, Strings = pcall(require, "src.core.Strings")
+        if ok and type(Strings) == "table" and type(Strings.lookup) == "function" then
+            return Strings.lookup(source)
+        end
+        return source
+    end
+
+    local function showGuardianNotice(notice, game)
+        if not notice or (notice.quarantined <= 0 and notice.restored <= 0) then
+            return false
+        end
+        game = game or liveGame()
+        local world = game and game.world
+        if not (world and type(world.showText) == "function") then return false end
+        local lines = {}
+        if notice.quarantined > 0 then
+            lines[#lines + 1] = tostring(notice.quarantined) .. " "
+                .. translated("CUSTOM POKEMON MOVED TO SAFE STORAGE.")
+        end
+        if notice.restored > 0 then
+            lines[#lines + 1] = tostring(notice.restored) .. " "
+                .. translated("CUSTOM POKEMON RESTORED.")
+        end
+        if notice.remaining > 0 then
+            lines[#lines + 1] = translated(
+                "RE-ENABLE THEIR SPECIES PACKS TO RESTORE THEM.")
+        end
+        world:showText(table.concat(lines, "<NEXT>"))
+        return true
+    end
 
     mod.events:on("save.created", function(context)
         guardianPass(context and context.save, liveGame())
@@ -2125,23 +2767,24 @@ return function(mod)
     mod.events:on("save.loaded", function(context)
         local notice = state.guardianNotice
         state.guardianNotice = nil
-        if not notice or (notice.quarantined <= 0 and notice.restored <= 0) then return end
-        local game = liveGame()
-        local world = game and game.world
-        if not (world and type(world.showText) == "function") then return end
-        local lines = {}
-        if notice.quarantined > 0 then
-            lines[#lines + 1] = tostring(notice.quarantined)
-                .. " CUSTOM POKEMON MOVED TO SAFE STORAGE."
+        showGuardianNotice(notice, liveGame())
+    end)
+
+    mod.events:on("checkpoint.restored", function(context)
+        local game = context and context.game or liveGame()
+        local result = guardianPass(game and game.save, game)
+        local compatibility = result.compatibility or {}
+        if #compatibility.missing > 0 or #compatibility.changed > 0 then
+            mod.log:warn("Expanded Species checkpoint content changed: %d missing, %d reassigned",
+                #compatibility.missing, #compatibility.changed)
         end
-        if notice.restored > 0 then
-            lines[#lines + 1] = tostring(notice.restored)
-                .. " CUSTOM POKEMON RESTORED."
+        if result.quarantined > 0 then
+            mod.log:warn("Expanded Species protected %d Pokemon after checkpoint restore",
+                result.quarantined)
         end
-        if notice.remaining > 0 then
-            lines[#lines + 1] = "RE-ENABLE THEIR SPECIES PACKS TO RESTORE THEM."
+        if context and context.kind == "overworld" then
+            showGuardianNotice(result, game)
         end
-        world:showText(table.concat(lines, "<NEXT>"))
     end)
 
     mod.events:on("game.ready", function(context)

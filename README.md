@@ -7,14 +7,16 @@ species.
 The framework keeps the vanilla species table intact, assigns deterministic
 runtime IDs beginning at 252, and integrates custom species with Gold's Pokedex,
 party/box icons, palettes, engine-native saves, battles, breeding data, and
-extended weighted grass/swimming encounter pools. It also gives packs safe
+extended weighted grass, swimming, swarm, fishing, and Bug Contest encounter
+pools. It also gives packs safe
 string-ID helpers for gifts, stationary encounters, custom trainers, NPC
 trades, and custom additions to existing vanilla trainer parties without using
-Gold's byte-sized species script operands.
+Gold's byte-sized species script operands, plus cosmetic forms, localization,
+checkpoint profiles, and compatibility reports.
 
 ## For players
 
-Install `expanded_species-0.5.0.zip` like any other gen1recomp mod, then install
+Install `expanded_species-0.6.0.zip` like any other gen1recomp mod, then install
 a species pack that declares Expanded Species as a dependency. The framework
 does not add Pokemon by itself.
 
@@ -27,7 +29,7 @@ Declare this dependency in your manifest:
 
 ```json
 "dependencies": [
-  "expanded_species@>=0.5.0 <2.0.0"
+  "expanded_species@>=0.6.0 <2.0.0"
 ]
 ```
 
@@ -131,6 +133,31 @@ The vanilla pool has weight 100. One custom entry with weight 1 therefore has
 a 1/101 chance when an encounter triggers; it does not change how often steps
 trigger battles.
 
+Gold 0.1.94 also has safe helpers for fishing, active swarm tables, and the
+Bug-Catching Contest:
+
+```lua
+api.addFishingEncounter(mod, {
+  map = "ROUTE_32",
+  rods = { "GOOD_ROD", "SUPER_ROD" },
+  species = speciesId,
+  level = 15,
+  weight = 10,
+})
+
+api.addBugContestEncounter(mod, {
+  species = speciesId,
+  minLevel = 12,
+  maxLevel = 16,
+  weight = 5,
+})
+```
+
+`addSwarmGrassEncounter` and `addSwarmWaterEncounter` use the same fields as
+their normal counterparts and are considered only while that map's swarm table
+is active. Headbutt, Rock Smash, and extra roaming slots still need upstream
+encounter hooks and are not altered by 0.6.
+
 ### Gifts, stationary encounters, trainers and trades
 
 Each helper registers one provider-owned command and returns a ready-to-use
@@ -189,6 +216,29 @@ See
 [AUTHOR_API.md](AUTHOR_API.md) for multi-change ordering, rematches, diagnostics,
 and multi-pack conflict behavior.
 
+### Cosmetic forms
+
+A species can declare persistent per-Pokemon art variants. The chosen form is
+stored on the Pokemon record and survives normal saves:
+
+```lua
+forms = {
+  winter = {
+    spriteFront = mod.assets:path("assets/aurorix_winter_front.png"),
+    spriteBack = mod.assets:path("assets/aurorix_winter_back.png"),
+    icon = mod.assets:path("assets/aurorix_winter_icon.png"),
+    trueColor = true,
+  },
+},
+```
+
+Pass `form = "winter"` to a gift, stationary encounter, custom trainer member,
+or vanilla-trainer insertion, or call `api.setForm(mon, "winter")`. On Gold
+0.1.94, per-mon forms are routed through battles, the summary screen, and party
+icons. The PC, trades, evolution, Hall of Fame, and Pokedex still show the
+species' default art. Per-form palettes and cries are not yet engine-supported;
+use `trueColor = true` form sprites when a form needs different colors.
+
 ### Palettes
 
 Gold battle pictures use four shades. The engine supplies white and black;
@@ -214,9 +264,32 @@ reuse a vanilla palette instead, set `paletteFallback = "TANGELA"`. Omitting
 both falls back to Ditto. See [AUTHOR_API.md](AUTHOR_API.md) for sprite-shade,
 true-color, shiny-testing, and multi-file species-pack guidance.
 
+### Localization and compatibility checks
+
+Expanded Species resolves custom names and Dex text through Gold's strings
+catalog at `game.ready`. Translation add-ons can use namespaced keys such as
+`expanded_species.MY_PACK_AURORIX.name|AURORIX` and
+`expanded_species.MY_PACK_AURORIX.dex.text|It paints the sky<NEXT>with icy light.`
+The plain English source key remains a fallback.
+
+Before publishing a pack, print or log a focused report:
+
+```lua
+local text, report = api.formatCompatibilityReport(mod)
+mod.log:info("\n%s", text)
+assert(report.ok, "Custom species pack needs attention")
+```
+
+Checkpoint tools can store `api.checkpointProfile()` beside a persistent
+checkpoint and call `api.compareCheckpointProfile(savedProfile)` before asking
+the engine to restore it. Expanded Species also re-runs Save Guardian after a
+successful checkpoint restoration. Gold 0.1.94 has no pre-restore mod event,
+so the sidecar comparison is required for early refusal; full engine-owned
+checkpoint preflight remains an upstream request.
+
 ### Disabled-pack save safety
 
-Version 0.5 protects a Gold save when a species pack is disabled, removed, or
+Version 0.5 and newer protect a Gold save when a species pack is disabled, removed, or
 temporarily fails to load. Before Gold opens the world, custom Pokemon whose
 species definitions are unavailable are removed from active engine tables and
 kept intact in Expanded Species' private save data. The player cannot see or
@@ -244,6 +317,8 @@ disable/update guard is still the complete long-term solution.
 - Gold ROM-script operations that take a one-byte species number cannot name a
   virtual species. Use the registry, trainer-decoration, and script helpers
   instead.
+- Gold 0.1.94 does not expose safe Headbutt, Rock Smash, extra-roamer,
+  per-form-palette/cry, complete form-screen, or checkpoint preflight seams.
 - Link battles require both players to have matching framework and species-pack
   data. Species packs should set `"affects_link": true`.
 - Keep Expanded Species enabled so its missing-pack guardian can run.

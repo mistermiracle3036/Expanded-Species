@@ -1,9 +1,9 @@
 {
   "id": "expanded_species",
   "name": "Expanded Species",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "author": "Mister Miracle",
-  "description": "Gold-only framework for custom Pokemon, extended wild pools, and safe trainer/scripted encounter helpers.",
+  "description": "Gold-only framework for custom Pokemon, safe saves, extended encounters, cosmetic forms, and author diagnostics.",
   "games": [
     "gold"
   ],

@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.6.0] — 2026-08-15
+
+### Added
+
+- Added weighted `addFishingEncounter`, `addBugContestEncounter`,
+  `addSwarmGrassEncounter`, and `addSwarmWaterEncounter` author helpers. They
+  compose through Gold 0.1.94's public encounter hooks and registries and go
+  dormant automatically when their species definition is absent.
+- Added persistent cosmetic forms through `forms`, `defaultForm`, `setForm`,
+  `getForm`, `formInfo`, and `forms`. Gifts, stationary battles, custom
+  trainers, and vanilla-trainer insertions accept `form`.
+- Added namespaced localization for custom species names and Pokedex kind/text
+  fields through Gold's official strings catalog.
+- Added deterministic checkpoint content profiles and compatibility comparison
+  helpers, plus a post-restore Save Guardian pass after successful overworld
+  checkpoint restoration.
+- Added structured and formatted pack compatibility reports covering species
+  diagnostics, encounter placements, trainer patches, hidden missing records,
+  engine/API metadata, and the current checkpoint profile.
+
+### Compatibility
+
+- Kept the public facade at API 1. New functionality is negotiated through the
+  `extendedFishing`, `extendedBugContest`, `extendedSwarms`, `cosmeticForms`,
+  `localizedSpecies`, `checkpointProfiles`, and `compatibilityReports`
+  capabilities.
+- Gold 0.1.94 has no safe public seam for Headbutt, Rock Smash, additional
+  roaming slots, per-mon form palettes/cries, or checkpoint validation before
+  reconstruction. Those remain explicitly unsupported instead of being
+  implemented with fragile engine overrides.
+- Gold 0.1.94 routes battle, summary, and party-icon art through the live form
+  hooks. PC, trade, evolution, Hall of Fame, and Pokedex screens still use a
+  species' default art; full routing is tracked for an upstream request.
+
 ## [0.5.0] — 2026-08-15
 
 - Added the Gold Save Guardian for species packs that are disabled, removed,

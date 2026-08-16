@@ -18,7 +18,10 @@ end
 local readyCallback
 local eventCallbacks = {}
 local encounterRollHook
+local fishingHook
 local trainerPartyHook
+local spriteHook
+local iconHook
 local logs = {}
 local framework = {
     id = "expanded_species",
@@ -46,8 +49,14 @@ end
 function framework.hooks:wrap(hookName, callback)
     if hookName == "encounter.roll" then
         encounterRollHook = callback
+    elseif hookName == "encounter.fishing" then
+        fishingHook = callback
     elseif hookName == "trainer.party" then
         trainerPartyHook = callback
+    elseif hookName == "pokemon.sprite" then
+        spriteHook = callback
+    elseif hookName == "pokemon.icon" then
+        iconHook = callback
     else
         fail("unexpected framework hook " .. tostring(hookName))
     end
@@ -66,14 +75,22 @@ expect(framework.exports.supports("scriptedTrainers"), "trainer capability")
 expect(framework.exports.supports("batchRegistration"), "batch capability")
 expect(framework.exports.supports("vanillaTrainerPatches"),
     "vanilla trainer patch capability")
+expect(framework.exports.supports("extendedFishing"), "fishing capability")
+expect(framework.exports.supports("extendedBugContest"), "Bug Contest capability")
+expect(framework.exports.supports("cosmeticForms"), "forms capability")
+expect(framework.exports.supports("checkpointProfiles"), "checkpoint capability")
+expect(framework.exports.supports("compatibilityReports"), "report capability")
 expect(type(readyCallback) == "function", "game.ready callback was not registered")
 for _, eventName in ipairs({ "save.created", "save.loading", "save.writing",
-    "save.loaded" }) do
+    "save.loaded", "checkpoint.restored" }) do
     expect(type(eventCallbacks[eventName]) == "function",
         eventName .. " callback was not registered")
 end
 expect(type(encounterRollHook) == "function", "encounter.roll hook was not registered")
+expect(type(fishingHook) == "function", "encounter.fishing hook was not registered")
 expect(type(trainerPartyHook) == "function", "trainer.party hook was not registered")
+expect(type(spriteHook) == "function", "pokemon.sprite hook was not registered")
+expect(type(iconHook) == "function", "pokemon.icon hook was not registered")
 
 local registered = {}
 local registeredCommands = {}
@@ -101,6 +118,22 @@ local encounterTables = {
         ROUTE_30 = {
             rate = 15,
             slots = vanillaSlots(3, "WATER_"),
+        },
+    },
+    swarmGrass = {
+        ROUTE_29 = {
+            rates = { MORN = 25, DAY = 25, NITE = 25 },
+            slots = {
+                MORN = vanillaSlots(7, "SWARM_MORN_"),
+                DAY = vanillaSlots(7, "SWARM_DAY_"),
+                NITE = vanillaSlots(7, "SWARM_NITE_"),
+            },
+        },
+    },
+    swarmWater = {
+        ROUTE_30 = {
+            rate = 15,
+            slots = vanillaSlots(3, "SWARM_WATER_"),
         },
     },
 }
@@ -160,7 +193,7 @@ end
 function provider.content.encounters:patch(kind, partial)
     for mapId, mapPatch in pairs(partial) do
         local target = assert(encounterTables[kind][mapId])
-        if kind == "grass" then
+        if kind == "grass" or kind == "swarmGrass" then
             for time, slotsPatch in pairs(mapPatch.slots or {}) do
                 applyListPatch(target.slots[time], slotsPatch)
             end
@@ -236,6 +269,14 @@ for position, speciesId in ipairs(ids) do
             normal = { { 240, 120, 80 }, { 120, 40, 20 } },
             shiny = { { 100, 220, 240 }, { 20, 80, 120 } },
         }
+        definition.forms = {
+            winter = {
+                spriteFront = "mods/test_species_pack/assets/alpha_winter_front.png",
+                spriteBack = "mods/test_species_pack/assets/alpha_winter_back.png",
+                icon = "mods/test_species_pack/assets/alpha_winter_icon.png",
+                trueColor = true,
+            },
+        }
     end
     definitions[#definitions + 1] = definition
 end
@@ -279,11 +320,38 @@ framework.exports.addWaterEncounter(provider, {
     level = 12,
     weight = 25,
 })
+framework.exports.addSwarmGrassEncounter(provider, {
+    map = "ROUTE_29",
+    species = "TEST_PACK_GAMMA",
+    level = 9,
+    weight = 20,
+    time = "DAY",
+})
+framework.exports.addSwarmWaterEncounter(provider, {
+    map = "ROUTE_30",
+    species = "TEST_PACK_DELTA",
+    level = 14,
+    weight = 15,
+})
+framework.exports.addFishingEncounter(provider, {
+    map = "ROUTE_30",
+    rods = { "GOOD_ROD", "super" },
+    species = "TEST_PACK_EPSILON",
+    level = 16,
+    weight = 30,
+})
+framework.exports.addBugContestEncounter(provider, {
+    species = "TEST_PACK_ZETA",
+    minLevel = 12,
+    maxLevel = 14,
+    weight = 25,
+})
 
 local giftRow = framework.exports.registerGift(provider, {
     id = "alpha_gift",
     species = "TEST_PACK_ALPHA",
     level = 10,
+    form = "winter",
 })
 local stationaryRow = framework.exports.registerStationaryEncounter(provider, {
     id = "beta_statue",
@@ -298,7 +366,7 @@ local trainerRow, trainerClass = framework.exports.registerTrainerEncounter(prov
     trainerName = "ADA",
     picFallback = "YOUNGSTER",
     party = {
-        { species = "TEST_PACK_ALPHA", level = 15 },
+        { species = "TEST_PACK_ALPHA", level = 15, form = "winter" },
         { species = "TEST_PACK_BETA", level = 16 },
     },
 })
@@ -317,7 +385,7 @@ local trainerPatch = framework.exports.patchVanillaTrainer(provider, {
     member = "JOEY1",
     changes = {
         { action = "insert", position = 1,
-          species = "TEST_PACK_ALPHA", level = 6 },
+          species = "TEST_PACK_ALPHA", level = 6, form = "winter" },
         { action = "insert", position = 3,
           species = "TEST_PACK_BETA", level = 7,
           moves = { "TACKLE", "GROWL" } },
@@ -356,6 +424,8 @@ expectEqual(trainerRow[2], "trainer", "trainer command kind")
 expectEqual(tradeRow[2], "trade", "trade command kind")
 expectEqual(trainerClass.trainers[1].party[2].species, "TEST_PACK_BETA",
     "trainer party keeps custom string ids")
+expectEqual(trainerClass.trainers[1].party[1].form, nil,
+    "cosmetic form metadata stays outside Gold's trainer schema")
 expectEqual(registeredCommands["test_species_pack:expanded_species"] ~= nil, true,
     "one provider-owned script command")
 expectEqual(trainerPatch.changes[2].position, 3,
@@ -367,6 +437,10 @@ for _, time in ipairs({ "MORN", "DAY", "NITE" }) do
 end
 expectEqual(#encounterTables.water.ROUTE_30.slots, 4,
     "water placement appends beyond three slots")
+expectEqual(#encounterTables.swarmGrass.ROUTE_29.slots.DAY, 8,
+    "swarm grass placement appends beyond seven slots")
+expectEqual(#encounterTables.swarmWater.ROUTE_30.slots, 4,
+    "swarm water placement appends beyond three slots")
 
 local vanillaEncounter = { species = "VANILLA_001", level = 2, slot = 1 }
 local nextCalls = 0
@@ -421,7 +495,61 @@ local unloadedProvider = encounterRollHook(vanillaRoll, encounterTables, {
 })
 expectEqual(unloadedProvider, vanillaEncounter,
     "provider placement is dormant when its species unloads")
-expectEqual(nextCalls, 5, "encounter hook must preserve the wrapped roll")
+
+local swarmView = {}
+for key, value in pairs(encounterTables) do swarmView[key] = value end
+swarmView.grass = {}
+for key, value in pairs(encounterTables.grass) do swarmView.grass[key] = value end
+swarmView.grass.ROUTE_29 = encounterTables.swarmGrass.ROUTE_29
+local swarmPick = encounterRollHook(vanillaRoll, swarmView, {
+    mapId = "ROUTE_29",
+    terrain = "grass",
+    daytime = "DAY",
+    kind = "wild",
+    data = {
+        gen2Encounters = encounterTables,
+        pokemon = {
+            TEST_PACK_ALPHA = {},
+            TEST_PACK_GAMMA = {},
+        },
+    },
+    rng = function(total)
+        expectEqual(total, 130, "combined normal and swarm-only weight")
+        return 111
+    end,
+})
+expectEqual(swarmPick.species, "TEST_PACK_GAMMA", "swarm-only custom selection")
+
+local contestPick = encounterRollHook(vanillaRoll, nil, {
+    mapId = "NATIONAL_PARK",
+    terrain = "grass",
+    kind = "contest",
+    data = { pokemon = { TEST_PACK_ZETA = {} } },
+    rng = function(total)
+        if total == 125 then return 101 end
+        expectEqual(total, 3, "Bug Contest custom level span")
+        return 3
+    end,
+})
+expectEqual(contestPick.species, "TEST_PACK_ZETA", "custom Bug Contest selection")
+expectEqual(contestPick.level, 14, "custom Bug Contest level range")
+
+local fishingNextCalls = 0
+local fishingPick = fishingHook(function()
+    fishingNextCalls = fishingNextCalls + 1
+    return { species = "MAGIKARP", level = 10 }
+end, "GOOD_ROD", "ROUTE_30", {}, {
+    data = { pokemon = { TEST_PACK_EPSILON = {} } },
+    rng = function(total)
+        expectEqual(total, 130, "fishing weighted total")
+        return 101
+    end,
+})
+expectEqual(fishingNextCalls, 1, "fishing helper preserves wrapped roll")
+expectEqual(fishingPick.species, "TEST_PACK_EPSILON", "custom fishing selection")
+expectEqual(fishingPick.level, 16, "custom fishing level")
+
+expectEqual(nextCalls, 7, "encounter hook must preserve the wrapped roll")
 
 if arg and arg[1] then
     local engineRoot = arg[1]:gsub("\\", "/"):gsub("/$", "")
@@ -512,6 +640,7 @@ registeredTrainers.ACE_TRAINER = {
 
 local data = {
     pokemon = pokemon,
+    gen2Encounters = encounterTables,
     moves = {
         TACKLE = { id = "TACKLE", pp = 35 },
         GROWL = { id = "GROWL", pp = 40 },
@@ -589,6 +718,17 @@ function game.world:showText(body)
     shownText = body
 end
 framework.game = game
+package.loaded["src.core.Strings"] = {
+    lookup = function(source, context)
+        if context == "expanded_species.TEST_PACK_ALPHA.name" then
+            return "ALPHA LOCAL"
+        end
+        if context == "expanded_species.TEST_PACK_ALPHA.dex.text" then
+            return "Localized harness Pokemon."
+        end
+        return source
+    end,
+}
 
 readyCallback({ game = game })
 
@@ -626,6 +766,10 @@ expectEqual(data.gen2Pokedex.entries.TEST_PACK_ALPHA.height, 304,
     "Pokedex height convenience conversion")
 expectEqual(data.gen2Pokedex.entries.TEST_PACK_ALPHA.weight, 555,
     "Pokedex weight convenience conversion")
+expectEqual(pokemon.TEST_PACK_ALPHA.name, "ALPHA LOCAL",
+    "custom species name uses the namespaced localization context")
+expectEqual(data.gen2Pokedex.entries.TEST_PACK_ALPHA.text,
+    "Localized harness Pokemon.", "custom Dex text is localized")
 expectEqual(#data.gen2Pokedex.newOrder, 260, "new-order Pokedex should contain every species once")
 expectEqual(#data.gen2Pokedex.alphabeticalOrder, 260,
     "alphabetical Pokedex should contain every species once")
@@ -637,12 +781,65 @@ expectEqual(framework.exports.info("TEST_PACK_ALPHA").virtualIndex,
     framework.exports.virtualIndex("TEST_PACK_ALPHA"), "metadata query")
 local diagnostic = framework.exports.diagnose("TEST_PACK_ALPHA")
 expect(diagnostic.ok, "registered custom species diagnostic should pass")
+local formMon = { species = "TEST_PACK_ALPHA" }
+framework.exports.setForm(formMon, "winter")
+expectEqual(framework.exports.getForm(formMon), "winter", "form setter persists id")
+expect(framework.exports.forms("TEST_PACK_ALPHA").winter ~= nil,
+    "form definition query")
+expectEqual(framework.exports.formInfo(formMon).definition.trueColor, true,
+    "form info query")
+local spriteContext = {
+    species = "TEST_PACK_ALPHA", side = "back", kind = "battle",
+    mon = formMon, trueColor = false, data = data,
+}
+local formBack = spriteHook(function(path) return path end,
+    pokemon.TEST_PACK_ALPHA.spriteBack, spriteContext)
+expectEqual(formBack,
+    "mods/test_species_pack/assets/alpha_winter_back.png",
+    "per-mon back sprite form")
+expectEqual(spriteContext.trueColor, true, "form can select true-color art")
+local formIcon = iconHook(function(path) return path end, "base_icon.png", {
+    species = "TEST_PACK_ALPHA", mon = formMon, data = data,
+})
+expectEqual(formIcon,
+    "mods/test_species_pack/assets/alpha_winter_icon.png",
+    "per-mon party icon form")
+framework.exports.setForm(formMon, nil)
+expectEqual(formMon.expandedForm, nil, "form can be cleared")
 expectEqual(data.gen2Trainers.classes[trainerClass.id].pic,
     "vanilla_youngster.png", "trainer portrait fallback")
 expect(data.gen2Palettes.trainers[trainerClass.id] ~= nil,
     "trainer palette fallback")
 expectEqual(#game.world.eventTables.trades, 7,
     "custom trade appends after six vanilla trades")
+
+local checkpointProfile = framework.exports.checkpointProfile()
+expectEqual(checkpointProfile.format, 1, "checkpoint profile format")
+expectEqual(#checkpointProfile.species, 9,
+    "checkpoint profile includes every custom species")
+expect(framework.exports.compareCheckpointProfile(checkpointProfile).ok,
+    "unchanged checkpoint content profile is compatible")
+local unknownProfile = framework.exports.compareCheckpointProfile({ species = {} })
+expect(not unknownProfile.ok and unknownProfile.unknown,
+    "checkpoint profile without a recognized format requires attention")
+local incompatibleProfile = {
+    format = 1,
+    species = {
+        { id = "REMOVED_PACK_MON", provider = "removed_pack" },
+    },
+}
+local incompatible = framework.exports.compareCheckpointProfile(incompatibleProfile)
+expect(not incompatible.ok and #incompatible.missing == 1,
+    "checkpoint profile reports missing species definitions")
+
+local compatibility = framework.exports.compatibilityReport(provider)
+expect(compatibility.ok, "provider compatibility report should pass")
+expectEqual(#compatibility.species, 8, "compatibility report filters by provider")
+expectEqual(#compatibility.encounters, 9,
+    "compatibility report includes every provider encounter placement")
+local formattedCompatibility = framework.exports.formatCompatibilityReport(provider)
+expect(formattedCompatibility:find("STATUS: COMPATIBLE", 1, true),
+    "formatted compatibility report is author-readable")
 
 -- Save Guardian: missing provider definitions move full mon records into the
 -- framework's hidden modData bucket before any party/box UI can read them.
@@ -798,6 +995,28 @@ expectEqual(conflictSave.party[3].customField, "wait-for-party",
 expectEqual(conflictSave.mail.party[3].message, "WAIT SAFELY",
     "delayed restore preserves the party MAIL record")
 
+local checkpointDefinition = pokemon.TEST_PACK_ALPHA
+local checkpointSave = {
+    party = { { species = "TEST_PACK_ALPHA", level = 20,
+        customField = "checkpoint-record" } },
+    boxes = {},
+    mail = { party = {}, box = {} },
+    modData = {},
+}
+game.save = checkpointSave
+framework.exports.guardSave(checkpointSave)
+pokemon.TEST_PACK_ALPHA = nil
+shownText = nil
+eventCallbacks["checkpoint.restored"]({ game = game, kind = "overworld" })
+expectEqual(framework.exports.missingCount(), 1,
+    "successful checkpoint restore quarantines newly missing content")
+expect(shownText and shownText:find("SAFE STORAGE", 1, true),
+    "checkpoint restore gives an overworld safety notice")
+pokemon.TEST_PACK_ALPHA = checkpointDefinition
+framework.exports.guardSave(checkpointSave)
+expectEqual(checkpointSave.party[1].customField, "checkpoint-record",
+    "checkpoint-protected record restores when content returns")
+
 game.save = {
     party = {
         { species = "DITTO", level = 20, hp = 40, stats = { hp = 40 } },
@@ -901,6 +1120,8 @@ expectEqual(#vanillaTrainerParty, 2, "trainer patch must not mutate wrapped part
 expectEqual(#composedTrainerParty, 6, "trainer inserts respect the six-mon limit")
 expectEqual(composedTrainerParty[1].species, "TEST_PACK_ALPHA",
     "trainer insert can use the first position")
+expectEqual(composedTrainerParty[1].expandedForm, "winter",
+    "vanilla trainer insert can select a cosmetic form")
 expectEqual(composedTrainerParty[2].species, "TEST_PACK_GAMMA",
     "trainer replacement uses the current composed position")
 expectEqual(composedTrainerParty[3].species, "TEST_PACK_BETA",
@@ -917,6 +1138,17 @@ local secondTrainerMove = composedTrainerParty[3].moves[2]
 expectEqual(type(secondTrainerMove) == "table" and secondTrainerMove.id
         or secondTrainerMove,
     "GROWL", "custom trainer member keeps explicit moves")
+
+local customTrainerParty = {
+    { species = "TEST_PACK_ALPHA", level = 15 },
+    { species = "TEST_PACK_BETA", level = 16 },
+}
+local decoratedCustomParty = trainerPartyHook(function(_, _, party) return party end,
+    trainerClass.id, trainerClass.trainers[1].id, customTrainerParty)
+expectEqual(decoratedCustomParty[1].expandedForm, "winter",
+    "custom trainer helper applies its cosmetic form after Gold builds the party")
+expect(decoratedCustomParty ~= customTrainerParty,
+    "custom trainer form decoration returns a composed party array")
 
 local untouchedParty = { { species = "VANILLA_010", level = 3 } }
 expectEqual(trainerPartyHook(function(_, _, party) return party end,
@@ -940,6 +1172,7 @@ local vm = {
 helper({ vm = vm }, "gift", "alpha_gift")
 expectEqual(#game.save.party, 2, "gift adds custom species to party")
 expectEqual(game.save.party[2].species, "TEST_PACK_ALPHA", "gift species")
+expectEqual(game.save.party[2].expandedForm, "winter", "gift cosmetic form")
 expect(game.save.pokedex.caught.TEST_PACK_ALPHA, "gift marks caught dex state")
 helper({ vm = vm }, "gift", "alpha_gift")
 expectEqual(#game.save.party, 2, "one-time gift cannot duplicate")
