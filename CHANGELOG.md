@@ -1,3 +1,34 @@
+## [0.6.4] — 2026-08-16
+
+**First public release.**
+
+Expanded Species is a framework for Pokemon Gold. On its own it adds no
+Pokemon — it is the foundation species packs are built on, and a pack that
+declares it as a dependency supplies the content.
+
+What it gives pack authors:
+
+- Custom species above #255, with their own sprites, icons, cries, palettes and
+  Pokedex entries.
+- Wild encounters that **add** to a route rather than replacing it — grass,
+  surfing, all three fishing rods, swarm-only rows, and the Bug-Catching
+  Contest. A route's vanilla species and base encounter rate are untouched.
+- Custom Pokemon placed into **existing** Gold trainers without disturbing their
+  NPC, dialogue, defeated flag, rematches, music or rewards.
+- Gifts, stationary encounters, custom trainers and NPC trades, all one-time and
+  save-aware.
+- Per-individual named forms that survive evolution, trading, egg hatching and
+  save/reload.
+- A **Save Guardian**: if a species pack is removed or fails to load, its
+  Pokemon are quarantined intact and restored when the pack comes back, rather
+  than corrupting the save.
+
+Requires gold gen1recomp 0.1.94 or newer. Gold only.
+
+Authors: `AUTHOR_API.md` documents the full provider API, every capability name
+and a pack testing checklist. Request features by capability rather than by
+version number — `api_version` stays `1` for the whole current contract.
+
 # Changelog
 
 ## [0.6.3] — 2026-08-16

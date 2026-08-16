@@ -1,12 +1,13 @@
 {
   "id": "expanded_species",
   "name": "Expanded Species",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "author": "Mister Miracle",
   "description": "Gold-only framework for custom Pokemon, safe saves, extended encounters, cosmetic forms, and author diagnostics.",
   "games": [
     "gold"
   ],
+  "github": "mistermiracle3036/Expanded-Species",
   "game_version": ">=0.1.94 <2.0.0",
   "api": 2,
   "profile": "content",

@@ -16,12 +16,21 @@ checkpoint profiles, and compatibility reports.
 
 ## For players
 
-Install `expanded_species-0.6.3.zip` like any other gen1recomp mod, then install
-a species pack that declares Expanded Species as a dependency. The framework
-does not add Pokemon by itself.
+**Expanded Species does not add any Pokemon by itself.** It is the framework
+that species packs are built on. Install it, then install a pack that declares
+Expanded Species as a dependency — the pack supplies the Pokemon.
 
-This build targets gen1recomp Gold 0.1.94 or newer in the 0.x/1.x line.
-It does not support Red.
+### Installation
+
+1. Download `expanded_species-<version>.zip` from the
+   [latest release](../../releases/latest).
+2. In the launcher: **MODS → Import mod .zip**. On iOS, delete any older
+   downloaded copy of the zip from Files first.
+3. Fully quit and relaunch.
+
+**Pokemon Gold only.** Requires gen1recomp **0.1.94 or newer** in the 0.x/1.x
+line. It does not support Red, Blue or Yellow — on those games it is skipped
+silently rather than failing.
 
 ## For mod makers
 
@@ -29,7 +38,7 @@ Declare this dependency in your manifest:
 
 ```json
 "dependencies": [
-  "expanded_species@>=0.6.3 <2.0.0"
+  "expanded_species@>=0.6.4 <2.0.0"
 ]
 ```
 

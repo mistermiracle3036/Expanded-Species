@@ -134,3 +134,36 @@ hunting for it — most developer spawn tools can hand over a specific species,
 level and shiny state. Then level it, use its evolution item, save and reload,
 and send it into battle to check the back sprite. Starting a battle with it is
 the fastest front-sprite and catch test.
+
+## Troubleshooting
+
+### I installed it and nothing happened
+
+That is the expected behaviour. **Expanded Species adds no Pokemon on its own** —
+it is the framework packs are built on. Install a species pack that declares it
+as a dependency and the pack's Pokemon appear.
+
+### It is acting like the old version
+
+The mod hot-reloaded instead of loading fresh. **Fully quit** the app — swipe it
+away, do not just background it — then relaunch and check the version in the
+load log.
+
+### An NPC turns to face me and then nothing happens
+
+That is the signature of a script error being swallowed, not a missing
+interaction. It is a real bug: please report it with the `[ERRS]` output below.
+
+### Where do I find error messages?
+
+Open the mod manager's **`[ERRS]`** screen. On a phone there is no console, so
+this is the only place errors appear. Copy or screenshot anything there — even
+if it looks unrelated — and include it with a bug report, along with the version
+from the load log and which other mods were enabled.
+
+### A pack's Pokemon vanished after I disabled the pack
+
+They are not gone. Expanded Species quarantines Pokemon whose species pack is
+missing and restores them when the pack returns — see "What happens if a species
+pack is removed?" above. Do not edit `modData` by hand.
+
