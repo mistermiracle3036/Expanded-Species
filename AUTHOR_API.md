@@ -1,6 +1,6 @@
 # Expanded Species author API
 
-API version: `1` (0.3 additions are backward-compatible capabilities)
+API version: `1` (0.3 and 0.4 additions are backward-compatible capabilities)
 
 ## Contract
 
@@ -214,7 +214,8 @@ local report = expanded.exports.diagnose("MY_PACK_AURORIX")
 allocated index and Dex number. `diagnose` checks the merged record, both battle
 sprites, allocation, Dex row, icon, palette, cry, and evolution targets.
 
-The exported `api_version` remains `1` because 0.3 only adds methods; existing
+The exported `api_version` remains `1` because 0.3 and 0.4 only add methods;
+existing
 species packs keep working unchanged. This is Expanded Species' provider API,
 not the separate gen1recomp `"api": 2` value in `manifest.json`.
 
@@ -235,7 +236,7 @@ assert(required, capabilityError)
 Use this dependency range in the pack manifest:
 
 ```json
-"expanded_species@>=0.3.0 <2.0.0"
+"expanded_species@>=0.4.0 <2.0.0"
 ```
 
 Expanded Species reserves `2.0.0` for a breaking provider API. Compatible
@@ -395,8 +396,8 @@ not need this 7/3-slot extension.
 
 Gold's original `givepoke`, `loadwildmon`, `loadtrainer`, and trade table use
 cartridge-sized numeric operands. Do not feed a virtual index above 255 into
-those commands. Expanded Species 0.3 registers provider-owned mod commands whose species
-fields remain registry string IDs.
+those commands. Expanded Species registers provider-owned mod commands whose
+species fields remain registry string IDs.
 
 Each registration returns one ready-to-use Gold VM row. A custom runtime NPC
 can use it directly as its `scriptKey`:
@@ -498,6 +499,89 @@ or `picFallback` can reuse a vanilla portrait and palette without
 redistributing it. Party rows support `item` and `moves` using the ordinary
 Gold trainer schema.
 
+### Add custom Pokemon to existing vanilla trainers
+
+`patchVanillaTrainer` decorates the battle-local party returned by Gold's
+public `trainer.party` hook. It does not rewrite the trainer's extracted roster
+or byte-sized `loadtrainer` operands, so the vanilla NPC, dialogue, sight
+engagement, defeated flag, portrait, music, base reward, phone calls, and
+rematch scripts stay in control. Gold calculates the final payout from the
+last composed party member's level, so appending after the original final
+member can intentionally change the amount.
+
+```lua
+local patch = expanded.exports.patchVanillaTrainer(mod, {
+  id = "joey_custom_party",
+  class = "YOUNGSTER",
+  member = "JOEY1",
+  changes = {
+    -- Insert before the current lead.
+    { action = "insert", position = 1,
+      species = "MY_PACK_BURGELA", level = 6 },
+
+    -- Positions use the party produced by every earlier change. This now
+    -- inserts into position 3 of that evolving party.
+    { action = "insert", position = 3,
+      species = "MY_PACK_COINPUR", level = 7,
+      moves = { "SCRATCH", "GROWL" } },
+
+    -- No party-size knowledge is needed for an append.
+    { action = "append",
+      species = "MY_PACK_AURORIX", level = 8,
+      item = "BERRY" },
+  },
+})
+```
+
+Insertion positions are one-based and are evaluated in declaration order
+against the currently composed party:
+
+- `position = 1` inserts a new lead.
+- Any position through the current size inserts between existing members.
+- Current size plus one inserts after the current final member.
+- `action = "append"` always chooses current size plus one.
+- `action = "replace"` changes the specified position without changing size.
+
+An insertion or append that would create a seventh member is skipped. Use
+`replace` when the target already has six Pokemon. For example:
+
+```lua
+expanded.exports.patchVanillaTrainer(mod, {
+  id = "replace_last_member",
+  class = "YOUR_TARGET_CLASS",
+  member = "YOUR_TARGET_MEMBER",
+  changes = {
+    { action = "replace", position = 6,
+      species = "MY_PACK_AURORIX", level = 42 },
+  },
+})
+```
+
+Use Gold's exact symbolic class and member IDs. Different rematch rosters are
+different members, so Joey's `JOEY1`, `JOEY2`, and `JOEY3` must be decorated
+separately when all three should change.
+
+Expanded Species calls the next `trainer.party` hook first, then applies its
+registered patches in stable provider-ID, patch-ID, and declared-change order.
+Other independent hook subscribers still compose according to the engine's
+normal wrapper order. Expanded Species insertions and appends compose with one
+another. If two registered packs replace the same composed position, the first
+stable claim is kept and the later replacement is skipped with a diagnostic
+rather than silently winning by pack load order.
+
+These queries return protected copies and a live validation report:
+
+```lua
+local patches = expanded.exports.trainerPatches("YOUNGSTER", "JOEY1")
+local report = expanded.exports.diagnoseTrainerPatches("YOUNGSTER", "JOEY1")
+assert(report.ok, report.errors[1] and report.errors[1].message)
+```
+
+The diagnostic verifies the target, custom species, composed positions,
+replacement collisions, and six-member limit after `game.ready`. Every custom
+member is built through Gold's normal trainer builder, including its standard
+trainer DVs, level moves, optional held item, and optional explicit move list.
+
 ### NPC trades
 
 ```lua
@@ -575,6 +659,9 @@ relaunch Gold:
    or terrain and check that the Pokedex area page lists the route.
 9. Run every registered gift, stationary encounter, trainer, and trade twice;
    the first should complete and the second should use its already-done path.
-10. Never disable the pack while one of its species remains in a party or box.
-11. For link play, use identical framework and species-pack versions on both
+10. For each vanilla trainer patch, test insertion at the beginning, middle or
+    end that the pack uses; verify full parties stay capped at six and exercise
+    every separately targeted rematch member.
+11. Never disable the pack while one of its species remains in a party or box.
+12. For link play, use identical framework and species-pack versions on both
    devices and declare `"affects_link": true` in the species-pack manifest.

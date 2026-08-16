@@ -1,4 +1,4 @@
-local VERSION = "0.3.0"
+local VERSION = "0.4.0"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
@@ -34,6 +34,7 @@ local CAPABILITIES = {
     scriptedTrades = true,
     scriptedTrainers = true,
     safeDefaults = true,
+    vanillaTrainerPatches = true,
 }
 
 local function isInteger(value)
@@ -472,6 +473,8 @@ return function(mod)
         },
         trades = {},
         tradeRuntimeIds = {},
+        trainerPatches = {},
+        trainerPatchWarnings = {},
     }
 
     local function providerKey(providerMod, kind, id)
@@ -530,6 +533,149 @@ return function(mod)
             happiness = opts.happiness,
         })
         return mon
+    end
+
+    local function warnTrainerPatchOnce(key, formatString, ...)
+        if state.trainerPatchWarnings[key] then return end
+        state.trainerPatchWarnings[key] = true
+        mod.log:warn(formatString, ...)
+    end
+
+    local function trainerTargetIds(classValue, memberValue)
+        local game = liveGame()
+        local classes = game and game.data and game.data.gen2Trainers
+            and game.data.gen2Trainers.classes
+        local classId = classValue
+        local class
+        if type(classes) == "table" then
+            if type(classValue) == "string" then
+                class = classes[classValue]
+            elseif type(classValue) == "number" then
+                for id, row in pairs(classes) do
+                    if type(row) == "table" and row.index == classValue then
+                        classId = id
+                        class = row
+                        break
+                    end
+                end
+            end
+        end
+
+        local memberId = memberValue
+        if class and type(memberValue) == "number" then
+            local row = class.trainers and class.trainers[memberValue]
+            if row and row.id then memberId = row.id end
+        end
+        return classId, memberId, class
+    end
+
+    local function sortedTrainerPatches(classId, memberId)
+        local out = {}
+        for _, patch in pairs(state.trainerPatches) do
+            if patch.class == classId and patch.member == memberId then
+                out[#out + 1] = patch
+            end
+        end
+        table.sort(out, function(left, right)
+            if left.provider == right.provider then return left.id < right.id end
+            return left.provider < right.provider
+        end)
+        return out
+    end
+
+    local function trainerPatchProviderActive(patch)
+        if type(mod.find) ~= "function" then return true end
+        return mod.find(patch.provider) ~= nil
+    end
+
+    local function buildTrainerPartyMember(change)
+        local game = liveGame()
+        local data = game and game.data
+        local Trainers = requireGold("src.world.gen2.Trainers")
+        local party = Trainers.party(data, {
+            roster = {
+                {
+                    species = change.species,
+                    level = change.level,
+                    item = change.item,
+                    moves = copy(change.moves),
+                },
+            },
+        })
+        return party and party[1] or nil
+    end
+
+    local function applyTrainerPatches(next_, trainerClass, trainerMember, party)
+        local result = next_(trainerClass, trainerMember, party)
+        if type(result) ~= "table" then result = party end
+        if type(result) ~= "table" then return result end
+
+        local classId, memberId = trainerTargetIds(trainerClass, trainerMember)
+        local patches = sortedTrainerPatches(classId, memberId)
+        if #patches == 0 then return result end
+
+        -- Copy only the party array. Each existing member is already a
+        -- battle-local mon and should retain identity for downstream hooks.
+        local out = {}
+        for index, mon in ipairs(result) do out[index] = mon end
+        local replaced = {}
+
+        for _, patch in ipairs(patches) do
+            if trainerPatchProviderActive(patch) then
+                for changeIndex, change in ipairs(patch.changes) do
+                    local operationKey = table.concat({ patch.provider, patch.id,
+                        tostring(changeIndex) }, "|")
+                    local position = change.position
+                    local validPosition = true
+                    local replacementClaim
+                    if change.action == "insert" then
+                        validPosition = position <= #out + 1
+                    elseif change.action == "replace" then
+                        validPosition = position <= #out
+                        replacementClaim = tostring(position)
+                    end
+
+                    if not validPosition then
+                        warnTrainerPatchOnce(operationKey .. "|position",
+                            "Expanded Species skipped %s/%s: %s position %s is "
+                                .. "invalid for trainer %s/%s party size %d",
+                            patch.provider, patch.id, change.action,
+                            tostring(position), tostring(classId),
+                            tostring(memberId), #out)
+                    elseif replacementClaim and replaced[replacementClaim] then
+                        warnTrainerPatchOnce(operationKey .. "|collision",
+                            "Expanded Species skipped %s/%s: trainer %s/%s "
+                                .. "position %d is already replaced by %s",
+                            patch.provider, patch.id, tostring(classId),
+                            tostring(memberId), position,
+                            replaced[replacementClaim])
+                    elseif change.action ~= "replace" and #out >= 6 then
+                        warnTrainerPatchOnce(operationKey .. "|full",
+                            "Expanded Species skipped %s/%s: trainer %s/%s "
+                                .. "already has six Pokemon",
+                            patch.provider, patch.id, tostring(classId),
+                            tostring(memberId))
+                    else
+                        local mon = buildTrainerPartyMember(change)
+                        if not mon then
+                            warnTrainerPatchOnce(operationKey .. "|species",
+                                "Expanded Species skipped %s/%s: species %s "
+                                    .. "is unavailable",
+                                patch.provider, patch.id, tostring(change.species))
+                        elseif change.action == "insert" then
+                            table.insert(out, position, mon)
+                        elseif change.action == "append" then
+                            out[#out + 1] = mon
+                        else
+                            out[position] = mon
+                            replaced[replacementClaim] = patch.provider
+                                .. "/" .. patch.id
+                        end
+                    end
+                end
+            end
+        end
+        return out
     end
 
     local function markDex(save, speciesId, caught)
@@ -1026,6 +1172,9 @@ return function(mod)
         extendedEncounterWeights = true,
         scriptedSpeciesHelpers = true,
     }
+    mod.exports.decorates = {
+        vanillaTrainerParties = true,
+    }
 
     function mod.exports.capabilities()
         return copy(CAPABILITIES)
@@ -1203,6 +1352,173 @@ return function(mod)
         return row, classRecord
     end
 
+    function mod.exports.patchVanillaTrainer(providerMod, spec)
+        assert(type(providerMod) == "table" and type(providerMod.id) == "string"
+            and providerMod.id ~= "",
+            "Expanded Species: trainer patch provider mod is required")
+        assert(type(spec) == "table",
+            "Expanded Species: vanilla trainer patch is required")
+        assert(type(spec.id) == "string" and spec.id ~= "",
+            "Expanded Species: vanilla trainer patch id is required")
+        local classId = spec.class or spec.classId
+        local memberId = spec.member or spec.memberId
+        assert(type(classId) == "string" and classId ~= "",
+            "Expanded Species: vanilla trainer class id is required")
+        assert(type(memberId) == "string" and memberId ~= "",
+            "Expanded Species: vanilla trainer member id is required")
+        assert(type(spec.changes) == "table" and #spec.changes > 0,
+            "Expanded Species: vanilla trainer changes must be a non-empty list")
+
+        local changes = {}
+        for index, source in ipairs(spec.changes) do
+            assert(type(source) == "table",
+                "Expanded Species: trainer change " .. index .. " must be a table")
+            local action = source.action or "insert"
+            assert(action == "insert" or action == "append" or action == "replace",
+                "Expanded Species: trainer change " .. index
+                    .. " action must be insert, append or replace")
+            if action ~= "append" then
+                assert(isInteger(source.position),
+                    "Expanded Species: trainer change " .. index
+                        .. " position must be a positive integer")
+            end
+            assert(type(source.species) == "string" and source.species ~= "",
+                "Expanded Species: trainer change " .. index .. " needs species")
+            assert(isInteger(source.level) and source.level <= 100,
+                "Expanded Species: trainer change " .. index
+                    .. " level must be 1 to 100")
+            if source.item ~= nil then
+                assert(type(source.item) == "string" and source.item ~= "",
+                    "Expanded Species: trainer change " .. index
+                        .. " item must be a string id")
+            end
+            if source.moves ~= nil then
+                assert(type(source.moves) == "table",
+                    "Expanded Species: trainer change " .. index
+                        .. " moves must be a list")
+                for moveIndex, moveId in ipairs(source.moves) do
+                    assert(type(moveId) == "string" and moveId ~= "",
+                        "Expanded Species: trainer change " .. index .. " move "
+                            .. moveIndex .. " must be a string id")
+                end
+            end
+            changes[#changes + 1] = {
+                action = action,
+                position = action == "append" and nil or source.position,
+                species = source.species,
+                level = source.level,
+                item = source.item,
+                moves = copy(source.moves),
+            }
+        end
+
+        local key = providerKey(providerMod, "vanilla_trainer", spec.id)
+        assert(state.trainerPatches[key] == nil,
+            "Expanded Species: duplicate vanilla trainer patch " .. spec.id)
+        local record = {
+            id = spec.id,
+            provider = providerMod.id,
+            class = classId,
+            member = memberId,
+            changes = changes,
+        }
+        state.trainerPatches[key] = record
+        return copy(record)
+    end
+
+    function mod.exports.trainerPatches(classValue, memberValue)
+        local classId, memberId = trainerTargetIds(classValue, memberValue)
+        return copy(sortedTrainerPatches(classId, memberId))
+    end
+
+    function mod.exports.diagnoseTrainerPatches(classValue, memberValue)
+        local errors, warnings = {}, {}
+        local classId, memberId, class = trainerTargetIds(classValue, memberValue)
+        local member
+        if class then
+            for _, row in ipairs(class.trainers or {}) do
+                if row.id == memberId then member = row break end
+            end
+        end
+        local game = liveGame()
+        local data = game and game.data
+        if data and not class then
+            addIssue(errors, "class", "unknown trainer class " .. tostring(classId))
+        elseif class and not member then
+            addIssue(errors, "member", "unknown trainer member " .. tostring(memberId))
+        elseif not data then
+            addIssue(warnings, "runtime", "trainer data is not ready yet")
+        end
+
+        local patches = sortedTrainerPatches(classId, memberId)
+        local size = member and #(member.party or {}) or nil
+        local replacements = {}
+        for _, patch in ipairs(patches) do
+            for changeIndex, change in ipairs(patch.changes) do
+                local path = patch.provider .. "/" .. patch.id
+                    .. ".changes[" .. changeIndex .. "]"
+                if data and data.pokemon and not data.pokemon[change.species] then
+                    addIssue(errors, path .. ".species",
+                        "unknown species " .. tostring(change.species))
+                end
+                if data and data.moves then
+                    for moveIndex, moveId in ipairs(change.moves or {}) do
+                        if not data.moves[moveId] then
+                            addIssue(errors, path .. ".moves[" .. moveIndex .. "]",
+                                "unknown move " .. tostring(moveId))
+                        end
+                    end
+                end
+                if change.item and data and data.items
+                    and not data.items[change.item] then
+                    addIssue(errors, path .. ".item",
+                        "unknown item " .. tostring(change.item))
+                end
+                if size then
+                    if change.action == "insert" then
+                        if change.position > size + 1 then
+                            addIssue(errors, path .. ".position",
+                                "cannot insert at " .. change.position
+                                    .. " when the composed party size is " .. size)
+                        elseif size >= 6 then
+                            addIssue(errors, path, "cannot exceed six Pokemon")
+                        else
+                            size = size + 1
+                        end
+                    elseif change.action == "append" then
+                        if size >= 6 then
+                            addIssue(errors, path, "cannot exceed six Pokemon")
+                        else
+                            size = size + 1
+                        end
+                    elseif change.position > size then
+                        addIssue(errors, path .. ".position",
+                            "cannot replace position " .. change.position
+                                .. " when the composed party size is " .. size)
+                    else
+                        local claim = tostring(change.position)
+                        if replacements[claim] then
+                            addIssue(errors, path .. ".position",
+                                "also replaced by " .. replacements[claim])
+                        else
+                            replacements[claim] = patch.provider .. "/" .. patch.id
+                        end
+                    end
+                end
+            end
+        end
+        return {
+            ok = #errors == 0,
+            class = classId,
+            member = memberId,
+            baseSize = member and #(member.party or {}) or nil,
+            composedSize = size,
+            patches = copy(patches),
+            errors = errors,
+            warnings = warnings,
+        }
+    end
+
     function mod.exports.registerTrade(providerMod, spec)
         assert(type(spec) == "table", "Expanded Species: trade definition is required")
         assert(type(spec.id) == "string" and spec.id ~= "",
@@ -1362,6 +1678,8 @@ return function(mod)
         return true
     end
 
+
+    mod.hooks:wrap("trainer.party", applyTrainerPatches)
 
     mod.hooks:wrap("encounter.roll", function(next_, tables, context)
         local rolled = next_(tables, context)

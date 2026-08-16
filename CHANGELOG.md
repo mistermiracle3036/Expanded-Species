@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0] — 2026-08-15
+
+- Added provider-owned `patchVanillaTrainer` decorations for adding custom
+  species to Gold's existing trainer battles without changing their scripts.
+- Trainer changes can insert before any party position, append after the final
+  member, or replace an existing position while preserving the six-mon limit.
+- Multiple packs compose in deterministic provider/patch order; conflicting
+  replacements, invalid positions, missing species and overflow are diagnosed
+  instead of silently producing a malformed trainer party.
+- Vanilla trainer decorations use Gold 0.1.94's public `trainer.party` hook and
+  normal trainer builder, keeping string species IDs safe above #255.
+
 ## [0.3.0] — 2026-08-15
 
 - Added preflight reports, low-risk species defaults and up-front batch

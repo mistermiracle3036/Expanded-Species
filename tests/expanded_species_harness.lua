@@ -17,6 +17,7 @@ end
 
 local readyCallback
 local encounterRollHook
+local trainerPartyHook
 local logs = {}
 local framework = {
     id = "expanded_species",
@@ -40,8 +41,13 @@ function framework.log:warn(formatString, ...)
 end
 
 function framework.hooks:wrap(hookName, callback)
-    expectEqual(hookName, "encounter.roll", "framework encounter hook")
-    encounterRollHook = callback
+    if hookName == "encounter.roll" then
+        encounterRollHook = callback
+    elseif hookName == "trainer.party" then
+        trainerPartyHook = callback
+    else
+        fail("unexpected framework hook " .. tostring(hookName))
+    end
 end
 
 local init = assert(loadfile("main.lua"))()
@@ -55,8 +61,11 @@ expectEqual(framework.exports.requireCapabilities({ "scriptedTrainers", "gifts" 
     framework.exports, "capability negotiation")
 expect(framework.exports.supports("scriptedTrainers"), "trainer capability")
 expect(framework.exports.supports("batchRegistration"), "batch capability")
+expect(framework.exports.supports("vanillaTrainerPatches"),
+    "vanilla trainer patch capability")
 expect(type(readyCallback) == "function", "game.ready callback was not registered")
 expect(type(encounterRollHook) == "function", "encounter.roll hook was not registered")
+expect(type(trainerPartyHook) == "function", "trainer.party hook was not registered")
 
 local registered = {}
 local registeredCommands = {}
@@ -294,6 +303,43 @@ local tradeRow = framework.exports.registerTrade(provider, {
     otName = "QA",
     otId = 3036,
 })
+local trainerPatch = framework.exports.patchVanillaTrainer(provider, {
+    id = "joey_custom_party",
+    class = "YOUNGSTER",
+    member = "JOEY1",
+    changes = {
+        { action = "insert", position = 1,
+          species = "TEST_PACK_ALPHA", level = 6 },
+        { action = "insert", position = 3,
+          species = "TEST_PACK_BETA", level = 7,
+          moves = { "TACKLE", "GROWL" } },
+        { action = "replace", position = 2,
+          species = "TEST_PACK_GAMMA", level = 8 },
+        { action = "insert", position = 5,
+          species = "TEST_PACK_DELTA", level = 9 },
+        { action = "append",
+          species = "TEST_PACK_ZETA", level = 10 },
+    },
+})
+local secondProvider = { id = "zzz_species_pack" }
+framework.exports.patchVanillaTrainer(secondProvider, {
+    id = "joey_conflicting_replace",
+    class = "YOUNGSTER",
+    member = "JOEY1",
+    changes = {
+        { action = "replace", position = 2,
+          species = "TEST_PACK_EPSILON", level = 10 },
+    },
+})
+framework.exports.patchVanillaTrainer(provider, {
+    id = "full_party_guard",
+    class = "ACE_TRAINER",
+    member = "FULL1",
+    changes = {
+        { action = "insert", position = 1,
+          species = "TEST_PACK_ALPHA", level = 30 },
+    },
+})
 
 expectEqual(giftRow[1], "test_species_pack:expanded_species", "gift command verb")
 expectEqual(giftRow[2], "gift", "gift command kind")
@@ -304,6 +350,8 @@ expectEqual(trainerClass.trainers[1].party[2].species, "TEST_PACK_BETA",
     "trainer party keeps custom string ids")
 expectEqual(registeredCommands["test_species_pack:expanded_species"] ~= nil, true,
     "one provider-owned script command")
+expectEqual(trainerPatch.changes[2].position, 3,
+    "trainer patch keeps arbitrary insertion position")
 
 for _, time in ipairs({ "MORN", "DAY", "NITE" }) do
     expectEqual(#encounterTables.grass.ROUTE_29.slots[time], 8,
@@ -424,9 +472,42 @@ end
 pokemon.TEST_PACK_DIRECT = speciesDefinition("TEST_PACK_DIRECT", 999)
 pokemon.TEST_PACK_DIRECT.index = nil
 
+registeredTrainers.YOUNGSTER = {
+    id = "YOUNGSTER",
+    index = 16,
+    name = "YOUNGSTER",
+    trainers = {
+        {
+            id = "JOEY1",
+            index = 1,
+            name = "JOEY",
+            party = {
+                { species = "VANILLA_019", level = 4 },
+                { species = "VANILLA_020", level = 5 },
+            },
+        },
+    },
+}
+registeredTrainers.ACE_TRAINER = {
+    id = "ACE_TRAINER",
+    index = 17,
+    name = "ACE TRAINER",
+    trainers = {
+        {
+            id = "FULL1",
+            index = 1,
+            name = "FULL",
+            party = vanillaSlots(6, "VANILLA_"),
+        },
+    },
+}
+
 local data = {
     pokemon = pokemon,
-    moves = {},
+    moves = {
+        TACKLE = { id = "TACKLE", pp = 35 },
+        GROWL = { id = "GROWL", pp = 40 },
+    },
     audio = { cries = {} },
     gen2Pokedex = {
         entries = entries,
@@ -573,6 +654,28 @@ package.loaded["src.battle.gen2.Mon"] = {
         return mon
     end,
 }
+if not (arg and arg[1]) then
+    package.loaded["src.world.gen2.Trainers"] = {
+        party = function(_, entry)
+            local out = {}
+            for _, row in ipairs(entry.roster or {}) do
+                out[#out + 1] = {
+                    species = row.species,
+                    level = row.level,
+                    item = row.item,
+                    moves = row.moves or {},
+                    hp = 30,
+                    stats = { hp = 30 },
+                    dvs = { attack = 9, defense = 8, speed = 8, special = 8 },
+                    trainerBuilt = true,
+                }
+            end
+            return out
+        end,
+    }
+else
+    package.loaded["src.world.gen2.Trainers"] = nil
+end
 package.loaded["src.pokemon.Party"] = {
     add = function(party, mon)
         if #party >= 6 then return false end
@@ -594,6 +697,63 @@ package.loaded["src.pokemon.Boxes"] = {
     end,
 }
 package.loaded["src.core.gen2.Unown"] = { registerCatch = function() end }
+
+local trainerDiagnostic = framework.exports.diagnoseTrainerPatches(
+    "YOUNGSTER", "JOEY1")
+expect(not trainerDiagnostic.ok,
+    "two providers replacing the same trainer position must be diagnosed")
+expectEqual(trainerDiagnostic.baseSize, 2, "trainer diagnostic base size")
+expectEqual(trainerDiagnostic.composedSize, 6, "trainer diagnostic composed size")
+expectEqual(#framework.exports.trainerPatches("YOUNGSTER", "JOEY1"), 2,
+    "trainer patch query lists both providers")
+
+local vanillaTrainerParty = {
+    { species = "VANILLA_019", level = 4 },
+    { species = "VANILLA_020", level = 5 },
+}
+local trainerNextCalls = 0
+local composedTrainerParty = trainerPartyHook(function(classId, memberId, party)
+    trainerNextCalls = trainerNextCalls + 1
+    expectEqual(classId, "YOUNGSTER", "trainer hook class id")
+    expectEqual(memberId, "JOEY1", "trainer hook member id")
+    expectEqual(party, vanillaTrainerParty, "trainer hook receives vanilla party")
+    return party
+end, "YOUNGSTER", "JOEY1", vanillaTrainerParty)
+expectEqual(trainerNextCalls, 1, "trainer hook preserves the wrapped hook")
+expectEqual(#vanillaTrainerParty, 2, "trainer patch must not mutate wrapped party")
+expectEqual(#composedTrainerParty, 6, "trainer inserts respect the six-mon limit")
+expectEqual(composedTrainerParty[1].species, "TEST_PACK_ALPHA",
+    "trainer insert can use the first position")
+expectEqual(composedTrainerParty[2].species, "TEST_PACK_GAMMA",
+    "trainer replacement uses the current composed position")
+expectEqual(composedTrainerParty[3].species, "TEST_PACK_BETA",
+    "trainer insert can use a middle position")
+expectEqual(composedTrainerParty[4].species, "VANILLA_020",
+    "trainer insert preserves later vanilla members")
+expectEqual(composedTrainerParty[5].species, "TEST_PACK_DELTA",
+    "trainer insert can use the final position")
+expectEqual(composedTrainerParty[6].species, "TEST_PACK_ZETA",
+    "trainer patch can append without knowing the final position")
+expectEqual(composedTrainerParty[3].dvs.attack, 9,
+    "custom trainer member uses Gold's fixed trainer DVs")
+local secondTrainerMove = composedTrainerParty[3].moves[2]
+expectEqual(type(secondTrainerMove) == "table" and secondTrainerMove.id
+        or secondTrainerMove,
+    "GROWL", "custom trainer member keeps explicit moves")
+
+local untouchedParty = { { species = "VANILLA_010", level = 3 } }
+expectEqual(trainerPartyHook(function(_, _, party) return party end,
+        "BUG_CATCHER", "DON", untouchedParty),
+    untouchedParty, "unregistered vanilla trainer party remains identical")
+
+local fullParty = vanillaSlots(6, "FULL_")
+local guardedParty = trainerPartyHook(function(_, _, party) return party end,
+    "ACE_TRAINER", "FULL1", fullParty)
+expectEqual(#guardedParty, 6, "trainer insert cannot create a seventh member")
+expectEqual(guardedParty[1].species, "FULL_1",
+    "full-party guard keeps the original order")
+expect(not framework.exports.diagnoseTrainerPatches("ACE_TRAINER", "FULL1").ok,
+    "full-party overflow is diagnosed")
 
 local helper = registeredCommands["test_species_pack:expanded_species"]
 local shown = {}
@@ -661,6 +821,6 @@ expectEqual(#game.world.eventTables.trades, 7,
     "hot reload must not duplicate custom trade rows")
 
 print(string.format(
-    "PASS: allocated %d custom Gold species at IDs 252-260, including 256+",
+    "PASS: allocated %d custom Gold species at IDs 252-260; trainer inserts cover first, middle and final positions",
     #allocatedIds
 ))

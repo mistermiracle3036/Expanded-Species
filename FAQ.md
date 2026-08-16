@@ -67,11 +67,21 @@ folder and packaged mods.
 
 ## Can trainers, gifts, stationary encounters, and trades use custom species?
 
-Yes. Expanded Species 0.3 has provider-owned helpers for all four. They pass registry string
-IDs directly to Gold's runtime systems, including IDs above #255, and keep
+Yes. Expanded Species has provider-owned helpers for all four. They pass
+registry string IDs directly to Gold's runtime systems, including IDs above
+#255, and keep
 one-time completion in the calling pack's `mod.save` namespace. Do not put a
 virtual numeric index into Gold's original one-byte `givepoke`, `loadwildmon`,
 `loadtrainer`, or trade operands.
+
+## Can I add a custom Pokemon to an existing vanilla trainer?
+
+Yes. Expanded Species 0.4's `patchVanillaTrainer` helper can insert a custom
+member before any current party position, append one at the end, or replace a
+position without changing party size. The trainer's normal NPC, dialogue,
+defeated flag, rematches, music and reward rules remain intact. Parties stay capped
+at six, and multiple packs are composed in a stable order with replacement
+conflicts reported by `diagnoseTrainerPatches`.
 
 ## How do I test evolutions and shiny palettes quickly?
 

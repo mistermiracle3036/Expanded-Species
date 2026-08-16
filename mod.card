@@ -1,7 +1,7 @@
 {
   "name": "Expanded Species",
   "author": "Mister Miracle",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A Gold framework for custom species, uncapped wild pools, gifts, trainers and scripted encounters.",
   "tags": [
     "framework",

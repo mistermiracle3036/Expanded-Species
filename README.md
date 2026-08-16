@@ -7,13 +7,14 @@ species.
 The framework keeps the vanilla species table intact, assigns deterministic
 runtime IDs beginning at 252, and integrates custom species with Gold's Pokedex,
 party/box icons, palettes, engine-native saves, battles, breeding data, and
-extended weighted grass/swimming encounter pools. Version 0.3 also gives packs safe
-string-ID helpers for gifts, stationary encounters, custom trainers and NPC
-trades without using Gold's byte-sized species script operands.
+extended weighted grass/swimming encounter pools. It also gives packs safe
+string-ID helpers for gifts, stationary encounters, custom trainers, NPC
+trades, and custom additions to existing vanilla trainer parties without using
+Gold's byte-sized species script operands.
 
 ## For players
 
-Install `expanded_species-0.3.0.zip` like any other gen1recomp mod, then install
+Install `expanded_species-0.4.0.zip` like any other gen1recomp mod, then install
 a species pack that declares Expanded Species as a dependency. The framework
 does not add Pokemon by itself.
 
@@ -26,7 +27,7 @@ Declare this dependency in your manifest:
 
 ```json
 "dependencies": [
-  "expanded_species@>=0.3.0 <2.0.0"
+  "expanded_species@>=0.4.0 <2.0.0"
 ]
 ```
 
@@ -109,7 +110,7 @@ assert(report.ok, report.errors[1] and report.errors[1].message)
 framework.exports.registerAll(mod, { aurorix, burgela, coinpur })
 ```
 
-Version 0.3 supplies safe defaults for `types`, `catchRate`, `baseExp`,
+The framework supplies safe defaults for `types`, `catchRate`, `baseExp`,
 `growthRate`, `levelMoves`, `evolutions`, and `picSize`. Authors still provide
 identity, all six base stats, and owned front/back sprite paths.
 
@@ -158,6 +159,36 @@ including custom species above #255. Completion state lives in the calling
 pack's own `mod.save` namespace. See [AUTHOR_API.md](AUTHOR_API.md) for complete
 examples and custom NPC wiring.
 
+### Add custom Pokemon to vanilla trainers
+
+Version 0.4 can decorate an existing Gold trainer without replacing its NPC,
+dialogue, defeated flag, rematch logic, portrait, music, or reward rules:
+
+```lua
+api = assert(api.requireCapabilities({ "vanillaTrainerPatches" }))
+
+api.patchVanillaTrainer(mod, {
+  id = "joey_adds_aurorix",
+  class = "YOUNGSTER",
+  member = "JOEY1",
+  changes = {
+    { action = "insert", position = 1,
+      species = speciesId, level = 6 },
+  },
+})
+```
+
+Insertion positions are one-based. Position `1` becomes the lead, any position
+through the current party size inserts between members, and current size plus
+one inserts at the end. Use `action = "append"` when the current size is not
+known, or `action = "replace"` to change a member without increasing party
+size. Gold's six-Pokemon limit is always enforced. Gold calculates the payout
+from the final composed party member's level, so appending a different-level
+member can change the amount while retaining the trainer's normal base reward.
+See
+[AUTHOR_API.md](AUTHOR_API.md) for multi-change ordering, rematches, diagnostics,
+and multi-pack conflict behavior.
+
 ### Palettes
 
 Gold battle pictures use four shades. The engine supplies white and black;
@@ -188,7 +219,8 @@ true-color, shiny-testing, and multi-file species-pack guidance.
 - Engine-native gen1recomp saves retain custom Pokemon by string ID.
 - A physical cartridge `.sav` cannot encode virtual species above 255.
 - Gold ROM-script operations that take a one-byte species number cannot name a
-  virtual species. Use the 0.3 registry/script helpers instead.
+  virtual species. Use the registry, trainer-decoration, and script helpers
+  instead.
 - Link battles require both players to have matching framework and species-pack
   data. Species packs should set `"affects_link": true`.
 - Do not disable a species pack while one of its Pokemon is in a party or box.
