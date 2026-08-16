@@ -1,6 +1,6 @@
 # Expanded Species author API
 
-API version: `1` (0.3 through 0.6.3 additions are backward-compatible capabilities)
+API version: `1` (all capabilities are additive and backward-compatible)
 
 ## Contract
 
@@ -216,7 +216,7 @@ local report = expanded.exports.diagnose("MY_PACK_AURORIX")
 allocated index and Dex number. `diagnose` checks the merged record, both battle
 sprites, allocation, Dex row, icon, palette, cry, and evolution targets.
 
-The exported `api_version` remains `1` because 0.3 through 0.6.3 only add methods;
+The exported `api_version` remains `1` because every addition so far only adds methods;
 existing
 species packs keep working unchanged. This is Expanded Species' provider API,
 not the separate gen1recomp `"api": 2` value in `manifest.json`.
@@ -394,7 +394,7 @@ also uses the official `encounter.roll` hook for selection.
 
 Gold 0.1.94's nest finder already reads the merged `gen2Encounters` tables, but
 its AREA renderer looks up the resulting index in the wrong landmark field.
-Expanded Species 0.6.2 supplies the correct `gen2Landmarks` table only while
+Expanded Species supplies the correct `gen2Landmarks` table only while
 that screen draws. Author tools can verify the adapter after `game.ready`:
 
 ```lua
@@ -850,7 +850,7 @@ tool itself; a general pre-restore validation seam is tracked for upstream.
 
 ## Disabled-pack Save Guardian
 
-No extra registration is required. Expanded Species 0.5 and newer record the provider
+No extra registration is required. Expanded Species records the provider
 owner and stable string ID for live custom species. During Gold's `save.loading`
 event, a Pokemon whose definition is unavailable is removed from active engine
 tables and retained as a complete record under Expanded Species' own `modData`

@@ -29,7 +29,7 @@ Pokedex, icon, palette, breeding, and save structures.
 
 ## What happens if a species pack is removed?
 
-Expanded Species 0.5 and newer move Pokemon whose definitions are missing into private
+Expanded Species moves Pokemon whose definitions are missing into private
 framework save data before Gold opens the world. This internal **MISSING**
 storage is not shown in the PC and cannot be interacted with. Re-enable or
 reinstall the pack and reload the save; complete records are restored to their
@@ -63,7 +63,7 @@ original Gold slot ratios stay unchanged inside the remaining 100/120.
 
 ## Can custom species appear while fishing, during swarms, or in the Bug Contest?
 
-Yes. Expanded Species 0.6 adds owned helpers for fishing rods, swarm-only
+Yes. Expanded Species has owned helpers for fishing rods, swarm-only
 grass/water rows, and the global Bug-Catching Contest pool. Headbutt, Rock
 Smash, and additional roaming slots are not exposed because Gold 0.1.94 does
 not provide safe registry-based runtime seams for them.
@@ -72,7 +72,7 @@ not provide safe registry-based runtime seams for them.
 
 Gold 0.1.94 correctly found grass and swimming nests but its AREA renderer read
 the Gen 1 landmark field instead of Gold's `gen2Landmarks` registry. Expanded
-Species 0.6.2 bridges that lookup, so the flashing marker and route name appear
+Species bridges that lookup, so the flashing marker and route name appear
 for both vanilla and custom species. The permanent one-line engine correction
 remains tracked for upstream.
 
@@ -85,7 +85,7 @@ use Ditto. A `trueColor = true` species uses the PNG's colors instead.
 
 ## Can one species have cosmetic forms?
 
-Yes. Expanded Species 0.6.1 stores a named form on each individual Pokemon and
+Yes. Expanded Species stores a named form on each individual Pokemon and
 routes it through battles, Summary, PC preview, evolution, NPC trades, Hall of
 Fame, egg hatching, Photo Studio, and party/trade icons. The Pokedex displays
 the species' `defaultForm` because it has no individual Pokemon record.
@@ -120,7 +120,7 @@ virtual numeric index into Gold's original one-byte `givepoke`, `loadwildmon`,
 
 ## Can I add a custom Pokemon to an existing vanilla trainer?
 
-Yes. Expanded Species 0.4's `patchVanillaTrainer` helper can insert a custom
+Yes. Expanded Species' `patchVanillaTrainer` helper can insert a custom
 member before any current party position, append one at the end, or replace a
 position without changing party size. The trainer's normal NPC, dialogue,
 defeated flag, rematches, music and reward rules remain intact. Parties stay capped

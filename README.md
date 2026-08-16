@@ -133,7 +133,7 @@ The vanilla pool has weight 100. One custom entry with weight 1 therefore has
 a 1/101 chance when an encounter triggers; it does not change how often steps
 trigger battles.
 
-Version 0.6.2 also repairs Gold 0.1.94's Pokédex AREA renderer so grass and
+Expanded Species also repairs Gold's Pokédex AREA renderer so grass and
 water placements display their flashing nest marker and route name. The
 encounter lookup remains Gold's native lookup; the compatibility bridge only
 routes the returned landmark index through Gold's actual landmark registry.
@@ -161,7 +161,7 @@ api.addBugContestEncounter(mod, {
 `addSwarmGrassEncounter` and `addSwarmWaterEncounter` use the same fields as
 their normal counterparts and are considered only while that map's swarm table
 is active. Headbutt, Rock Smash, and extra roaming slots still need upstream
-encounter hooks and are not altered by 0.6.
+encounter hooks and are not altered.
 
 ### Gifts, stationary encounters, trainers and trades
 
@@ -193,7 +193,7 @@ examples and custom NPC wiring.
 
 ### Add custom Pokemon to vanilla trainers
 
-Version 0.4 can decorate an existing Gold trainer without replacing its NPC,
+Expanded Species can decorate an existing Gold trainer without replacing its NPC,
 dialogue, defeated flag, rematch logic, portrait, music, or reward rules:
 
 ```lua
@@ -301,7 +301,7 @@ checkpoint preflight remains an upstream request.
 
 ### Disabled-pack save safety
 
-Version 0.5 and newer protect a Gold save when a species pack is disabled, removed, or
+Expanded Species protects a Gold save when a species pack is disabled, removed, or
 temporarily fails to load. Before Gold opens the world, custom Pokemon whose
 species definitions are unavailable are removed from active engine tables and
 kept intact in Expanded Species' private save data. The player cannot see or
@@ -331,7 +331,7 @@ disable/update guard is still the complete long-term solution.
   instead.
 - Gold 0.1.94 does not expose safe Headbutt, Rock Smash, extra-roamer,
   per-form-palette/cry, native all-screen form routing, or checkpoint preflight
-  seams. Expanded Species 0.6.2 supplies narrowly scoped Gold screen bridges
+  seams. Expanded Species supplies narrowly scoped Gold screen bridges
   for its own cosmetic forms and the Pokédex nest landmark lookup.
 - Link battles require both players to have matching framework and species-pack
   data. Species packs should set `"affects_link": true`.

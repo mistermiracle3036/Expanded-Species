@@ -1,12 +1,25 @@
-{
-  "name": "Expanded Species",
-  "author": "Mister Miracle",
-  "version": "0.6.3",
-  "description": "A Gold framework for custom species, uncapped encounters, trainer helpers, and missing-pack save protection.",
-  "tags": [
-    "framework",
-    "gold",
-    "gen2",
-    "modding-tool"
-  ]
+-- Sharing metadata: read by tooling and the mod manager's detail pane, never
+-- by the loader's merge. Must RETURN A TABLE -- it is loaded with loadfile()
+-- (engine tests/mod_examples_tests.lua:113-116), so the JSON this file used to
+-- contain parsed as a syntax error and the mod rendered anonymous. A malformed
+-- card cannot break a load, which is exactly why nothing caught it: the
+-- harnesses, modkit lint, modkit validate and gen2check all pass without ever
+-- reading this file.
+return {
+  summary = "A Gold framework for custom species, uncapped encounters, trainer helpers, and missing-pack save protection.",
+  author = "Mister Miracle",
+  tags = { "framework", "gold", "gen2", "modding-tool" },
+  differences = {
+    "adds custom species above #255, with their own sprites, icons, cries and Pokedex entries",
+    "expands natural encounters -- grass, water, fishing rods and swarms -- without replacing a route's vanilla slots or altering its base rate",
+    "scripted encounter helpers: gifts, stationary encounters, custom trainers and NPC trades, all one-time and save-aware",
+    "custom Pokemon can be inserted into vanilla trainer parties without breaking sight lines, payouts, defeated flags or phone rematches",
+    "per-individual named forms that survive evolution, trading, hatching and save/reload",
+    "a missing-pack Save Guardian: if a species pack is removed, its Pokemon are quarantined safely and restored when the pack returns, rather than corrupting the save",
+    "this is a FRAMEWORK -- on its own it adds no Pokemon. Species packs built against it supply the content",
+  },
+  credits = { "pret/pokecrystal and pokegold research",
+              "gen1recomp engine",
+              "Pokemon characters are used as fan tribute" },
+  compat = "Pokemon Gold only. Bundles no third-party code or assets. Other mods extend it through the author API (see AUTHOR_API.md); two independent providers can add to the same trainer without conflicting.",
 }

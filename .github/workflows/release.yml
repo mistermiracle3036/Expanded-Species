@@ -93,6 +93,15 @@ jobs:
             found && /^## / {exit}
             found {print}
           ' CHANGELOG.md > notes.md
+
+          # An empty body means the heading did not match, or the section is
+          # blank. Either way this must not publish silently -- a release whose
+          # notes are just install steps looks deliberate and is not, and the
+          # CHANGELOG section IS the player-visible description of what changed.
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::no CHANGELOG section body found for $VERSION - refusing to publish empty release notes"
+            exit 1
+          fi
           {
             echo ""
             echo "---"
