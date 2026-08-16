@@ -29,8 +29,19 @@ Pokedex, icon, palette, breeding, and save structures.
 
 ## What happens if a species pack is removed?
 
-Its species definitions disappear. Remove its custom Pokemon from your party
-and boxes before disabling the pack, and keep a backup of the save.
+Expanded Species 0.5 moves Pokemon whose definitions are missing into private
+framework save data before Gold opens the world. This internal **MISSING**
+storage is not shown in the PC and cannot be interacted with. Re-enable or
+reinstall the pack and reload the save; complete records are restored to their
+original locations when possible, with an ordinary box used as a safe fallback.
+Keep Expanded Species itself enabled, because its guardian cannot run when the
+framework is also disabled or fails to load.
+
+## Can I see or withdraw Pokemon from MISSING storage?
+
+No. It is intentionally not a real PC box. A missing definition is not safe to
+render, battle, breed, trade, or edit. The framework preserves the record and
+only returns it to normal gameplay after its species definition exists again.
 
 ## Does link play work?
 

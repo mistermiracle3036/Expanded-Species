@@ -14,7 +14,7 @@ Gold's byte-sized species script operands.
 
 ## For players
 
-Install `expanded_species-0.4.0.zip` like any other gen1recomp mod, then install
+Install `expanded_species-0.5.0.zip` like any other gen1recomp mod, then install
 a species pack that declares Expanded Species as a dependency. The framework
 does not add Pokemon by itself.
 
@@ -27,7 +27,7 @@ Declare this dependency in your manifest:
 
 ```json
 "dependencies": [
-  "expanded_species@>=0.4.0 <2.0.0"
+  "expanded_species@>=0.5.0 <2.0.0"
 ]
 ```
 
@@ -214,16 +214,39 @@ reuse a vanilla palette instead, set `paletteFallback = "TANGELA"`. Omitting
 both falls back to Ditto. See [AUTHOR_API.md](AUTHOR_API.md) for sprite-shade,
 true-color, shiny-testing, and multi-file species-pack guidance.
 
+### Disabled-pack save safety
+
+Version 0.5 protects a Gold save when a species pack is disabled, removed, or
+temporarily fails to load. Before Gold opens the world, custom Pokemon whose
+species definitions are unavailable are removed from active engine tables and
+kept intact in Expanded Species' private save data. The player cannot see or
+interact with this internal **MISSING** storage through the PC.
+
+When the pack returns, the framework automatically restores each Pokemon to
+its original party slot, box position, Day-Care side, pending egg slot, or
+active Bug-Catching Contest location when possible. If that location became
+occupied, it uses the first legal ordinary box. A Pokemon carrying party MAIL
+stays protected until a party slot is available because boxed Pokemon cannot
+legally retain a party MAIL record. No Pokemon is deleted, converted into a
+vanilla species, or assigned a different species ID.
+
+Keep Expanded Species itself enabled. The current gen1recomp 0.1.94 mod manager
+does not offer mods a pre-disable/update veto, so a framework that is itself
+disabled, removed, or unable to load cannot run its guardian. An engine-level
+disable/update guard is still the complete long-term solution.
+
 ## Important limits
 
 - Engine-native gen1recomp saves retain custom Pokemon by string ID.
+- Renaming or removing a shipped species ID is not yet an automatic migration;
+  restore the old ID or wait for the planned alias/migration API.
 - A physical cartridge `.sav` cannot encode virtual species above 255.
 - Gold ROM-script operations that take a one-byte species number cannot name a
   virtual species. Use the registry, trainer-decoration, and script helpers
   instead.
 - Link battles require both players to have matching framework and species-pack
   data. Species packs should set `"affects_link": true`.
-- Do not disable a species pack while one of its Pokemon is in a party or box.
+- Keep Expanded Species enabled so its missing-pack guardian can run.
 
 ## License
 

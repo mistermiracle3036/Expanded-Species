@@ -1,7 +1,11 @@
-local VERSION = "0.4.0"
+local VERSION = "0.5.0"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
+local SAVE_GUARDIAN_FORMAT = 1
+local PARTY_SIZE = 6
+local NUM_BOXES = 14
+local MONS_PER_BOX = 20
 local GRASS_TIMES = { "MORN", "DAY", "NITE" }
 local SHINY_DVS = { attack = 14, defense = 10, speed = 10, special = 10 }
 local TRAINER_TYPES = {
@@ -34,6 +38,7 @@ local CAPABILITIES = {
     scriptedTrades = true,
     scriptedTrainers = true,
     safeDefaults = true,
+    saveGuardian = true,
     vanillaTrainerPatches = true,
 }
 
@@ -475,6 +480,7 @@ return function(mod)
         tradeRuntimeIds = {},
         trainerPatches = {},
         trainerPatchWarnings = {},
+        guardianNotice = nil,
     }
 
     local function providerKey(providerMod, kind, id)
@@ -498,6 +504,361 @@ return function(mod)
         if save and type(save.set) == "function" then
             save:set(key, value)
         end
+    end
+
+    -- Missing species cannot stay in Gold's ordinary party/box/Day-Care
+    -- tables: several engine screens index data.pokemon[mon.species]
+    -- directly. Keep the complete records in Expanded Species' own save
+    -- bucket until the defining pack comes back. This is deliberately NOT a
+    -- fifteenth PC box and is never exposed as an editable list.
+    local function saveGuardian(save)
+        if type(save) ~= "table" then return nil end
+        save.modData = type(save.modData) == "table" and save.modData or {}
+        local bucket = save.modData[mod.id]
+        if type(bucket) ~= "table" then
+            bucket = {}
+            save.modData[mod.id] = bucket
+        end
+        local guardian = bucket.saveGuardian
+        if type(guardian) ~= "table" then
+            guardian = {}
+            bucket.saveGuardian = guardian
+        end
+        guardian.format = SAVE_GUARDIAN_FORMAT
+        guardian.catalog = type(guardian.catalog) == "table" and guardian.catalog or {}
+        guardian.missing = type(guardian.missing) == "table" and guardian.missing or {}
+        guardian.nextSequence = math.max(1,
+            math.floor(tonumber(guardian.nextSequence) or 1))
+        return guardian
+    end
+
+    local function catalogLiveSpecies(guardian, pokemon)
+        if not guardian or type(pokemon) ~= "table" then return end
+        for speciesId, definition in pairs(pokemon) do
+            if type(speciesId) == "string" and type(definition) == "table"
+                and isCustomSpecies(definition) then
+                local marker = markerFor(definition) or {}
+                guardian.catalog[speciesId] = {
+                    species = speciesId,
+                    provider = marker.provider,
+                    name = definition.name or speciesId,
+                    frameworkApi = marker.api or API_VERSION,
+                }
+            end
+        end
+    end
+
+    local function stampOwnedMon(mon, pokemon, catalog)
+        if type(mon) ~= "table" or type(mon.species) ~= "string" then return end
+        local definition = pokemon and pokemon[mon.species]
+        if not (definition and isCustomSpecies(definition)) then return end
+        local row = catalog and catalog[mon.species] or {}
+        local marker = type(mon.expandedSpecies) == "table"
+            and mon.expandedSpecies or {}
+        marker.api = API_VERSION
+        marker.species = mon.species
+        marker.provider = row and row.provider
+            or (markerFor(definition) or {}).provider
+        mon.expandedSpecies = marker
+    end
+
+    local function eachActiveSaveMon(save, fn)
+        if type(save) ~= "table" or type(fn) ~= "function" then return end
+        for index, mon in ipairs(save.party or {}) do
+            fn(mon, { kind = "party", index = index })
+        end
+        for boxIndex = 1, NUM_BOXES do
+            local box = save.boxes and save.boxes[boxIndex]
+            if type(box) == "table" then
+                for index, mon in ipairs(box) do
+                    fn(mon, { kind = "box", box = boxIndex, index = index })
+                end
+            end
+        end
+        local dayCare = save.dayCare
+        if type(dayCare) == "table" then
+            if dayCare.man and dayCare.man.mon then
+                fn(dayCare.man.mon, { kind = "dayCare", side = "man" })
+            end
+            if dayCare.lady and dayCare.lady.mon then
+                fn(dayCare.lady.mon, { kind = "dayCare", side = "lady" })
+            end
+            if dayCare.egg then fn(dayCare.egg, { kind = "dayCare", side = "egg" }) end
+        end
+        if save.daycare and save.daycare.mon then
+            fn(save.daycare.mon, { kind = "legacyDayCare" })
+        end
+        local contest = save.bugContest
+        if type(contest) == "table" then
+            for index, mon in ipairs(contest.stash or {}) do
+                fn(mon, { kind = "bugContestStash", index = index })
+            end
+            if contest.caught then
+                fn(contest.caught, { kind = "bugContestCaught" })
+            end
+        end
+    end
+
+    local function partyMail(save)
+        save.mail = type(save.mail) == "table" and save.mail or {}
+        save.mail.party = type(save.mail.party) == "table" and save.mail.party or {}
+        return save.mail.party
+    end
+
+    local function removePartyMail(save, index)
+        local rows = partyMail(save)
+        local removed = rows[index]
+        for slot = index, PARTY_SIZE - 1 do rows[slot] = rows[slot + 1] end
+        rows[PARTY_SIZE] = nil
+        return removed
+    end
+
+    local function insertPartyMail(save, index, entry)
+        local rows = partyMail(save)
+        for slot = PARTY_SIZE, index + 1, -1 do
+            rows[slot] = rows[slot - 1]
+        end
+        rows[index] = entry
+    end
+
+    local function missingDefinition(mon, pokemon)
+        return type(mon) == "table" and type(mon.species) == "string"
+            and mon.species ~= "EGG" and not (pokemon and pokemon[mon.species])
+    end
+
+    local function quarantineEntry(guardian, mon, source, mail)
+        local catalog = guardian.catalog[mon.species] or {}
+        local monMarker = type(mon.expandedSpecies) == "table"
+            and mon.expandedSpecies or {}
+        local entry = {
+            sequence = guardian.nextSequence,
+            species = mon.species,
+            provider = catalog.provider or monMarker.provider,
+            name = mon.nickname or mon.name or catalog.name or mon.species,
+            mon = mon,
+            source = copy(source),
+        }
+        if mail ~= nil then entry.mail = mail end
+        guardian.nextSequence = guardian.nextSequence + 1
+        guardian.missing[#guardian.missing + 1] = entry
+        return entry
+    end
+
+    local function quarantineMissing(save, pokemon, guardian)
+        local moved = 0
+        save.party = type(save.party) == "table" and save.party or {}
+        for index = #save.party, 1, -1 do
+            local mon = save.party[index]
+            if missingDefinition(mon, pokemon) then
+                local mail = partyMail(save)[index]
+                table.remove(save.party, index)
+                removePartyMail(save, index)
+                quarantineEntry(guardian, mon,
+                    { kind = "party", index = index }, mail)
+                moved = moved + 1
+            end
+        end
+
+        save.boxes = type(save.boxes) == "table" and save.boxes or {}
+        for boxIndex = 1, NUM_BOXES do
+            local box = save.boxes[boxIndex]
+            if type(box) == "table" then
+                for index = #box, 1, -1 do
+                    local mon = box[index]
+                    if missingDefinition(mon, pokemon) then
+                        table.remove(box, index)
+                        quarantineEntry(guardian, mon,
+                            { kind = "box", box = boxIndex, index = index })
+                        moved = moved + 1
+                    end
+                end
+            end
+        end
+
+        local dayCare = save.dayCare
+        if type(dayCare) == "table" then
+            for _, side in ipairs({ "man", "lady" }) do
+                local slot = dayCare[side]
+                if type(slot) == "table" and missingDefinition(slot.mon, pokemon) then
+                    local mon = slot.mon
+                    slot.mon = nil
+                    quarantineEntry(guardian, mon,
+                        { kind = "dayCare", side = side })
+                    moved = moved + 1
+                end
+            end
+            if missingDefinition(dayCare.egg, pokemon) then
+                local mon = dayCare.egg
+                dayCare.egg = nil
+                quarantineEntry(guardian, mon,
+                    { kind = "dayCare", side = "egg" })
+                moved = moved + 1
+            end
+        end
+
+        if type(save.daycare) == "table"
+            and missingDefinition(save.daycare.mon, pokemon) then
+            local mon = save.daycare.mon
+            save.daycare.mon = nil
+            quarantineEntry(guardian, mon, { kind = "legacyDayCare" })
+            moved = moved + 1
+        end
+
+        local contest = save.bugContest
+        if type(contest) == "table" then
+            local stash = contest.stash
+            if type(stash) == "table" then
+                for index = #stash, 1, -1 do
+                    local mon = stash[index]
+                    if missingDefinition(mon, pokemon) then
+                        table.remove(stash, index)
+                        quarantineEntry(guardian, mon,
+                            { kind = "bugContestStash", index = index })
+                        moved = moved + 1
+                    end
+                end
+            end
+            if missingDefinition(contest.caught, pokemon) then
+                local mon = contest.caught
+                contest.caught = nil
+                quarantineEntry(guardian, mon, { kind = "bugContestCaught" })
+                moved = moved + 1
+            end
+        end
+        return moved
+    end
+
+    local function insertAt(items, index, value)
+        index = math.max(1, math.min(math.floor(tonumber(index) or (#items + 1)),
+            #items + 1))
+        table.insert(items, index, value)
+        return index
+    end
+
+    local function restoreExact(save, entry)
+        local source = entry.source or {}
+        local mon = entry.mon
+        if source.kind == "party" then
+            save.party = type(save.party) == "table" and save.party or {}
+            if #save.party >= PARTY_SIZE then return false end
+            local index = insertAt(save.party, source.index, mon)
+            insertPartyMail(save, index, entry.mail)
+            return true
+        elseif source.kind == "box" then
+            save.boxes = type(save.boxes) == "table" and save.boxes or {}
+            local boxIndex = math.floor(tonumber(source.box) or 0)
+            if boxIndex < 1 or boxIndex > NUM_BOXES then return false end
+            local box = save.boxes[boxIndex]
+            if type(box) ~= "table" then
+                box = {}
+                save.boxes[boxIndex] = box
+            end
+            if #box >= MONS_PER_BOX then return false end
+            insertAt(box, source.index, mon)
+            return true
+        elseif source.kind == "dayCare" then
+            save.dayCare = type(save.dayCare) == "table" and save.dayCare or {}
+            if source.side == "egg" then
+                if save.dayCare.egg ~= nil then return false end
+                save.dayCare.egg = mon
+                return true
+            end
+            if source.side ~= "man" and source.side ~= "lady" then return false end
+            save.dayCare[source.side] = type(save.dayCare[source.side]) == "table"
+                and save.dayCare[source.side] or {}
+            if save.dayCare[source.side].mon ~= nil then return false end
+            save.dayCare[source.side].mon = mon
+            return true
+        elseif source.kind == "legacyDayCare" then
+            save.daycare = type(save.daycare) == "table" and save.daycare or {}
+            if save.daycare.mon ~= nil then return false end
+            save.daycare.mon = mon
+            return true
+        elseif source.kind == "bugContestStash" then
+            if type(save.bugContest) ~= "table" or save.bugContest.active ~= true then
+                return false
+            end
+            save.bugContest.stash = type(save.bugContest.stash) == "table"
+                and save.bugContest.stash or {}
+            insertAt(save.bugContest.stash, source.index, mon)
+            return true
+        elseif source.kind == "bugContestCaught" then
+            if type(save.bugContest) ~= "table" or save.bugContest.active ~= true then
+                return false
+            end
+            if save.bugContest.caught ~= nil then return false end
+            save.bugContest.caught = mon
+            return true
+        end
+        return false
+    end
+
+    local function restoreFallback(save, entry)
+        -- Party MAIL has no legal box representation. Keep such a mon in the
+        -- hidden store until a party slot is free rather than detach its letter.
+        if entry.mail ~= nil then
+            save.party = type(save.party) == "table" and save.party or {}
+            if #save.party >= PARTY_SIZE then return false end
+            local index = #save.party + 1
+            save.party[index] = entry.mon
+            insertPartyMail(save, index, entry.mail)
+            return true
+        end
+        save.boxes = type(save.boxes) == "table" and save.boxes or {}
+        for boxIndex = 1, NUM_BOXES do
+            local box = save.boxes[boxIndex]
+            if type(box) ~= "table" then
+                box = {}
+                save.boxes[boxIndex] = box
+            end
+            if #box < MONS_PER_BOX then
+                box[#box + 1] = entry.mon
+                return true
+            end
+        end
+        return false
+    end
+
+    local function restoreAvailable(save, pokemon, guardian)
+        local restored = 0
+        local remaining = {}
+        table.sort(guardian.missing, function(left, right)
+            local leftSequence = type(left) == "table" and left.sequence or 0
+            local rightSequence = type(right) == "table" and right.sequence or 0
+            return (tonumber(leftSequence) or 0) < (tonumber(rightSequence) or 0)
+        end)
+        for _, entry in ipairs(guardian.missing) do
+            local mon = type(entry) == "table" and entry.mon
+            local speciesId = mon and mon.species
+                or (type(entry) == "table" and entry.species)
+            if type(mon) == "table" and pokemon and pokemon[speciesId]
+                and (restoreExact(save, entry) or restoreFallback(save, entry)) then
+                restored = restored + 1
+            else
+                remaining[#remaining + 1] = entry
+            end
+        end
+        guardian.missing = remaining
+        return restored
+    end
+
+    local function guardianPass(save, game)
+        local pokemon = game and game.data and game.data.pokemon
+        if type(save) ~= "table" or type(pokemon) ~= "table" then
+            return { quarantined = 0, restored = 0, remaining = 0 }
+        end
+        local guardian = saveGuardian(save)
+        catalogLiveSpecies(guardian, pokemon)
+        local restored = restoreAvailable(save, pokemon, guardian)
+        local quarantined = quarantineMissing(save, pokemon, guardian)
+        eachActiveSaveMon(save, function(mon)
+            stampOwnedMon(mon, pokemon, guardian.catalog)
+        end)
+        return {
+            quarantined = quarantined,
+            restored = restored,
+            remaining = #guardian.missing,
+        }
     end
 
     local function requireGold(path)
@@ -1170,6 +1531,7 @@ return function(mod)
         expandedSpeciesMetadata = true,
         customGen2PokedexRows = true,
         extendedEncounterWeights = true,
+        hiddenMissingSpeciesStorage = true,
         scriptedSpeciesHelpers = true,
     }
     mod.exports.decorates = {
@@ -1620,6 +1982,36 @@ return function(mod)
         return out
     end
 
+    function mod.exports.missingCount()
+        local game = liveGame()
+        local guardian = game and game.save and saveGuardian(game.save)
+        return guardian and #guardian.missing or 0
+    end
+
+    function mod.exports.missingInfo()
+        local game = liveGame()
+        local guardian = game and game.save and saveGuardian(game.save)
+        local out = {}
+        for _, entry in ipairs(guardian and guardian.missing or {}) do
+            if type(entry) == "table" then
+                out[#out + 1] = {
+                    sequence = entry.sequence,
+                    species = entry.species
+                        or (entry.mon and entry.mon.species),
+                    provider = entry.provider,
+                    name = entry.name,
+                    source = copy(entry.source),
+                }
+            end
+        end
+        return out
+    end
+
+    function mod.exports.guardSave(save)
+        local game = liveGame()
+        return guardianPass(save or (game and game.save), game)
+    end
+
     function mod.exports.diagnose(speciesId)
         local errors, warnings = {}, {}
         local game = liveGame()
@@ -1708,6 +2100,48 @@ return function(mod)
 
         local pokemon = context.data and context.data.pokemon
         return customEncounter(pool, context.rng, pokemon) or rolled
+    end)
+
+    mod.events:on("save.created", function(context)
+        guardianPass(context and context.save, liveGame())
+    end)
+
+    mod.events:on("save.loading", function(context)
+        local result = guardianPass(context and context.raw, liveGame())
+        state.guardianNotice = result
+        if result.quarantined > 0 then
+            mod.log:warn("Expanded Species protected %d missing Pokemon; %d remain hidden",
+                result.quarantined, result.remaining)
+        elseif result.restored > 0 then
+            mod.log:info("Expanded Species restored %d Pokemon from hidden storage",
+                result.restored)
+        end
+    end)
+
+    mod.events:on("save.writing", function(context)
+        guardianPass(context and context.save, liveGame())
+    end)
+
+    mod.events:on("save.loaded", function(context)
+        local notice = state.guardianNotice
+        state.guardianNotice = nil
+        if not notice or (notice.quarantined <= 0 and notice.restored <= 0) then return end
+        local game = liveGame()
+        local world = game and game.world
+        if not (world and type(world.showText) == "function") then return end
+        local lines = {}
+        if notice.quarantined > 0 then
+            lines[#lines + 1] = tostring(notice.quarantined)
+                .. " CUSTOM POKEMON MOVED TO SAFE STORAGE."
+        end
+        if notice.restored > 0 then
+            lines[#lines + 1] = tostring(notice.restored)
+                .. " CUSTOM POKEMON RESTORED."
+        end
+        if notice.remaining > 0 then
+            lines[#lines + 1] = "RE-ENABLE THEIR SPECIES PACKS TO RESTORE THEM."
+        end
+        world:showText(table.concat(lines, "<NEXT>"))
     end)
 
     mod.events:on("game.ready", function(context)

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.0] — 2026-08-15
+
+- Added the Gold Save Guardian for species packs that are disabled, removed,
+  or temporarily unavailable after an engine update.
+- Missing custom Pokemon are moved before the world loads into framework-owned
+  hidden save storage; this is not a visible or interactive PC box.
+- Re-enabling the defining pack automatically restores complete Pokemon records
+  to their original party, box, Day-Care, or active Bug-Catching Contest
+  location when that location remains available.
+- Party MAIL and arbitrary mod-authored Pokemon fields are preserved. A safe
+  fallback box is used when an original location is occupied; a Pokemon remains
+  hidden when no legal destination exists.
+- Added in-game quarantine/restoration notices plus read-only `missingCount`,
+  `missingInfo`, and `guardSave` diagnostics under the stable API 1 contract.
+
 ## [0.4.0] — 2026-08-15
 
 - Added provider-owned `patchVanillaTrainer` decorations for adding custom

@@ -16,6 +16,7 @@ local function expectEqual(actual, expected, message)
 end
 
 local readyCallback
+local eventCallbacks = {}
 local encounterRollHook
 local trainerPartyHook
 local logs = {}
@@ -28,8 +29,10 @@ local framework = {
 }
 
 function framework.events:on(eventName, callback)
-    expectEqual(eventName, "game.ready", "framework should subscribe to game.ready")
-    readyCallback = callback
+    expect(eventCallbacks[eventName] == nil,
+        "framework should subscribe once to " .. tostring(eventName))
+    eventCallbacks[eventName] = callback
+    if eventName == "game.ready" then readyCallback = callback end
 end
 
 function framework.log:info(formatString, ...)
@@ -64,6 +67,11 @@ expect(framework.exports.supports("batchRegistration"), "batch capability")
 expect(framework.exports.supports("vanillaTrainerPatches"),
     "vanilla trainer patch capability")
 expect(type(readyCallback) == "function", "game.ready callback was not registered")
+for _, eventName in ipairs({ "save.created", "save.loading", "save.writing",
+    "save.loaded" }) do
+    expect(type(eventCallbacks[eventName]) == "function",
+        eventName .. " callback was not registered")
+end
 expect(type(encounterRollHook) == "function", "encounter.roll hook was not registered")
 expect(type(trainerPartyHook) == "function", "trainer.party hook was not registered")
 
@@ -552,6 +560,7 @@ for speciesId in pairs(registered) do data.audio.cries[speciesId] = {} end
 local battleStarted
 local battleDone
 local disappearedObject
+local shownText
 local game = {
     data = data,
     save = {
@@ -575,6 +584,9 @@ function game.world:startBattle(opts, onDone)
 end
 function game.world:disappearObject(objectId)
     disappearedObject = objectId
+end
+function game.world:showText(body)
+    shownText = body
 end
 framework.game = game
 
@@ -631,6 +643,171 @@ expect(data.gen2Palettes.trainers[trainerClass.id] ~= nil,
     "trainer palette fallback")
 expectEqual(#game.world.eventTables.trades, 7,
     "custom trade appends after six vanilla trades")
+
+-- Save Guardian: missing provider definitions move full mon records into the
+-- framework's hidden modData bucket before any party/box UI can read them.
+local guardedIds = {
+    "TEST_PACK_ALPHA", "TEST_PACK_BETA", "TEST_PACK_GAMMA",
+    "TEST_PACK_DELTA", "TEST_PACK_EPSILON",
+}
+local guardedDefinitions = {}
+for _, speciesId in ipairs(guardedIds) do
+    guardedDefinitions[speciesId] = pokemon[speciesId]
+    pokemon[speciesId] = nil
+end
+local guardedSave = {
+    party = {
+        { species = "DITTO", level = 20 },
+        { species = "TEST_PACK_ALPHA", level = 31, item = "FLOWER_MAIL",
+            customField = "party-record", expandedSpecies = { provider = provider.id } },
+        { species = "DITTO", level = 12, item = "SURF_MAIL",
+            customField = "trailing-party-record" },
+    },
+    boxes = {
+        [2] = {
+            { species = "TEST_PACK_BETA", level = 22, customField = "box-record" },
+        },
+    },
+    dayCare = {
+        man = { mon = { species = "TEST_PACK_GAMMA", level = 18,
+            customField = "daycare-record" } },
+        lady = {},
+    },
+    bugContest = {
+        active = true,
+        stash = {
+            { species = "TEST_PACK_DELTA", level = 15, customField = "stash-record" },
+        },
+        caught = { species = "TEST_PACK_EPSILON", level = 14,
+            customField = "contest-record" },
+    },
+    mail = {
+        party = {
+            [2] = { item = "FLOWER_MAIL", message = "KEEP THIS LETTER" },
+            [3] = { item = "SURF_MAIL", message = "TRAILING LETTER" },
+        },
+        box = {},
+    },
+    modData = {},
+}
+eventCallbacks["save.loading"]({ raw = guardedSave })
+game.save = guardedSave
+expectEqual(#guardedSave.party, 2, "missing party species is hidden")
+expectEqual(guardedSave.party[2].customField, "trailing-party-record",
+    "party closes around a hidden species")
+expectEqual(guardedSave.mail.party[2].message, "TRAILING LETTER",
+    "later party MAIL shifts with its mon while a species is hidden")
+expectEqual(#guardedSave.boxes[2], 0, "missing boxed species is hidden")
+expectEqual(guardedSave.dayCare.man.mon, nil, "missing Day-Care species is hidden")
+expectEqual(#guardedSave.bugContest.stash, 0, "missing contest stash species is hidden")
+expectEqual(guardedSave.bugContest.caught, nil, "missing contest catch is hidden")
+expectEqual(framework.exports.missingCount(), 5, "all missing records are quarantined")
+expectEqual(guardedSave.boxes[15], nil,
+    "hidden storage is not a visible extra PC box")
+local hidden = guardedSave.modData.expanded_species.saveGuardian.missing
+expectEqual(hidden[1].mon.customField ~= nil, true,
+    "hidden storage preserves arbitrary mon fields")
+eventCallbacks["save.loaded"]({ save = guardedSave })
+expect(shownText and shownText:find("5 CUSTOM POKEMON", 1, true),
+    "player receives an in-game missing-pack notice")
+
+if arg and arg[1] then
+    local SaveSerializer = require("src.core.SaveSerializer")
+    local encoded = SaveSerializer.encode(guardedSave)
+    guardedSave = assert(SaveSerializer.decode(encoded))
+    game.save = guardedSave
+    expectEqual(framework.exports.missingCount(), 5,
+        "hidden records survive Gold's real save serializer")
+end
+
+for _, speciesId in ipairs(guardedIds) do
+    pokemon[speciesId] = guardedDefinitions[speciesId]
+end
+shownText = nil
+eventCallbacks["save.loading"]({ raw = guardedSave })
+game.save = guardedSave
+expectEqual(framework.exports.missingCount(), 0,
+    "hidden records restore when definitions return")
+expectEqual(guardedSave.party[2].customField, "party-record",
+    "party record returns to its original position")
+expectEqual(guardedSave.mail.party[2].message, "KEEP THIS LETTER",
+    "party MAIL follows the restored mon")
+expectEqual(guardedSave.party[3].customField, "trailing-party-record",
+    "restoring a party position preserves later members")
+expectEqual(guardedSave.mail.party[3].message, "TRAILING LETTER",
+    "restoring a party position preserves later MAIL")
+expectEqual(guardedSave.boxes[2][1].customField, "box-record",
+    "box record returns to its original position")
+expectEqual(guardedSave.dayCare.man.mon.customField, "daycare-record",
+    "Day-Care record returns to its original side")
+expectEqual(guardedSave.bugContest.stash[1].customField, "stash-record",
+    "contest stash record returns")
+expectEqual(guardedSave.bugContest.caught.customField, "contest-record",
+    "contest caught record returns")
+eventCallbacks["save.loaded"]({ save = guardedSave })
+expect(shownText and shownText:find("5 CUSTOM POKEMON RESTORED", 1, true),
+    "player receives an in-game restoration notice")
+
+local conflictParty = {}
+for index = 1, 6 do
+    conflictParty[index] = { species = "DITTO", level = index }
+end
+local conflictSave = {
+    party = conflictParty,
+    boxes = {},
+    mail = { party = {}, box = {} },
+    modData = {
+        expanded_species = {
+            saveGuardian = {
+                format = 1,
+                nextSequence = 3,
+                catalog = {},
+                missing = {
+                    {
+                        sequence = 1,
+                        species = "TEST_PACK_ALPHA",
+                        mon = { species = "TEST_PACK_ALPHA", customField = "fallback-box" },
+                        source = { kind = "party", index = 2 },
+                    },
+                    {
+                        sequence = 2,
+                        species = "TEST_PACK_BETA",
+                        mon = { species = "TEST_PACK_BETA", item = "FLOWER_MAIL",
+                            customField = "wait-for-party" },
+                        mail = { item = "FLOWER_MAIL", message = "WAIT SAFELY" },
+                        source = { kind = "party", index = 3 },
+                    },
+                },
+            },
+        },
+    },
+}
+local conflictResult = framework.exports.guardSave(conflictSave)
+expectEqual(conflictResult.restored, 1,
+    "full party sends a mail-free restored mon to an ordinary box")
+expectEqual(conflictSave.boxes[1][1].customField, "fallback-box",
+    "fallback box preserves the complete record")
+expectEqual(conflictResult.remaining, 1,
+    "MAIL mon remains hidden while no legal party destination exists")
+table.remove(conflictSave.party, 6)
+local secondConflictPass = framework.exports.guardSave(conflictSave)
+expectEqual(secondConflictPass.restored, 1,
+    "MAIL mon restores after a party slot becomes available")
+expectEqual(conflictSave.party[3].customField, "wait-for-party",
+    "delayed restore uses the original party position")
+expectEqual(conflictSave.mail.party[3].message, "WAIT SAFELY",
+    "delayed restore preserves the party MAIL record")
+
+game.save = {
+    party = {
+        { species = "DITTO", level = 20, hp = 40, stats = { hp = 40 } },
+    },
+    boxes = {},
+    currentBox = 1,
+    player = { name = "TESTER", id = 1234 },
+    pokedex = { seen = {}, caught = {} },
+    tradeFlags = {},
+}
 
 package.loaded["src.battle.gen2.Mon"] = {
     new = function(_, species, level, opts)

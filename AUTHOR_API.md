@@ -1,6 +1,6 @@
 # Expanded Species author API
 
-API version: `1` (0.3 and 0.4 additions are backward-compatible capabilities)
+API version: `1` (0.3 through 0.5 additions are backward-compatible capabilities)
 
 ## Contract
 
@@ -214,7 +214,7 @@ local report = expanded.exports.diagnose("MY_PACK_AURORIX")
 allocated index and Dex number. `diagnose` checks the merged record, both battle
 sprites, allocation, Dex row, icon, palette, cry, and evolution targets.
 
-The exported `api_version` remains `1` because 0.3 and 0.4 only add methods;
+The exported `api_version` remains `1` because 0.3 through 0.5 only add methods;
 existing
 species packs keep working unchanged. This is Expanded Species' provider API,
 not the separate gen1recomp `"api": 2` value in `manifest.json`.
@@ -236,7 +236,7 @@ assert(required, capabilityError)
 Use this dependency range in the pack manifest:
 
 ```json
-"expanded_species@>=0.4.0 <2.0.0"
+"expanded_species@>=0.5.0 <2.0.0"
 ```
 
 Expanded Species reserves `2.0.0` for a breaking provider API. Compatible
@@ -628,6 +628,41 @@ local done = expanded.exports.helperComplete(mod, "stationary", "aurorix_shrine"
 expanded.exports.resetHelper(mod, "stationary", "aurorix_shrine")
 ```
 
+## Disabled-pack Save Guardian
+
+No extra registration is required. Expanded Species 0.5 records the provider
+owner and stable string ID for live custom species. During Gold's `save.loading`
+event, a Pokemon whose definition is unavailable is removed from active engine
+tables and retained as a complete record under Expanded Species' own `modData`
+bucket. This private **MISSING** storage is not a PC box and has no player edit,
+withdraw, release, battle, trade, or breeding surface.
+
+When the species definition returns, the framework restores the record to its
+original party, box, Day-Care, pending-egg, or active Bug-Catching Contest
+location when available. It otherwise uses the first box with room. Party MAIL
+is preserved separately and forces restoration to wait for a free party slot,
+because Gold has no legal boxed MAIL representation.
+
+Tools can inspect summary metadata without gaining access to edit hidden mon
+records:
+
+```lua
+local count = expanded.exports.missingCount()
+for _, row in ipairs(expanded.exports.missingInfo()) do
+  mod.log:warn("missing %s from %s", row.species, row.provider or "unknown pack")
+end
+```
+
+The `saveGuardian` capability advertises this behavior. Authors must still keep
+species IDs permanent after release. Changing `MY_PACK_OLD_NAME` to
+`MY_PACK_NEW_NAME` looks like a removed species until the planned alias and
+migration API exists; restoring the old registration ID is the non-destructive
+recovery. Do not ask players to edit `modData` manually.
+
+This protection requires Expanded Species itself to load. gen1recomp 0.1.94
+does not expose a mod-disable/update veto, so disabling or removing the
+framework cannot be intercepted by a provider pack.
+
 ## Compatibility boundary
 
 Virtual indices are an engine-runtime extension, not an alteration to the Game
@@ -662,6 +697,11 @@ relaunch Gold:
 10. For each vanilla trainer patch, test insertion at the beginning, middle or
     end that the pack uses; verify full parties stay capped at six and exercise
     every separately targeted rematch member.
-11. Never disable the pack while one of its species remains in a party or box.
-12. For link play, use identical framework and species-pack versions on both
+11. With a backup save, disable the species pack while its Pokemon occupy the
+    party, a box, and the Day-Care. Confirm the in-game protection notice, that
+    no MISSING box appears in the PC, then re-enable the pack and confirm every
+    record restores with nickname, held item, MAIL, stats, and custom fields.
+12. Keep Expanded Species enabled during that test; the framework cannot guard
+    a save when it is itself disabled or unable to load.
+13. For link play, use identical framework and species-pack versions on both
    devices and declare `"affects_link": true` in the species-pack manifest.
