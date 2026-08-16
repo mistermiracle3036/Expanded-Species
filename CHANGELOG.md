@@ -1,3 +1,22 @@
+## [0.6.5] — 2026-08-16
+
+Documentation only. No behaviour changes; the mod code is identical to 0.6.4.
+
+### Fixed
+
+- The Pokédex AREA nest bridge is now described as what it is: a fallback for
+  older Gold builds. Current gen1recomp releases resolve nest landmarks through
+  `gen2Landmarks` themselves, and the bridge stands down when they do. The
+  README, FAQ and author API previously described the repair as a current
+  feature.
+- **Author-facing correction worth a release on its own:** the author API's nest
+  example asserted on `nestScreenStatus().installed`. On a current engine the
+  bridge is correctly not installed, so a pack following that example would fail
+  an assertion for no reason. It is now an informational log.
+
+The form screen bridge is unaffected — it is still required, and asserting that
+it installed remains correct.
+
 ## [0.6.4] — 2026-08-16
 
 **First public release.**

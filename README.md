@@ -38,7 +38,7 @@ Declare this dependency in your manifest:
 
 ```json
 "dependencies": [
-  "expanded_species@>=0.6.4 <2.0.0"
+  "expanded_species@>=0.6.5 <2.0.0"
 ]
 ```
 
