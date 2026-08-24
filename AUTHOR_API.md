@@ -2,6 +2,10 @@
 
 API version: `1` (all capabilities are additive and backward-compatible)
 
+Manifest target: `"games": ["gen2"]` (Gold, Silver, and Crystal). Version
+0.6.6 is source-audited against gen1recomp 0.2.21 with Crystal as the primary
+target; Crystal and Silver device verification is still pending.
+
 ## Contract
 
 Call `expanded.exports.register(mod, definition)` during your mod's entry point.
@@ -47,7 +51,7 @@ pack registered.
 
 ## Required species fields
 
-Gold's Pokemon schema requires these core fields after framework defaults are
+Gen 2's Pokemon schema requires these core fields after framework defaults are
 applied:
 
 - `id` and `name`
@@ -59,7 +63,7 @@ The framework defaults `types` to `{ "NORMAL" }`, `catchRate` to `45`,
 `baseExp` to `100`, `growthRate` to `GROWTH_MEDIUM_FAST`, `levelMoves` and
 `evolutions` to empty lists, and `picSize` to `7`. These defaults make a probe
 species concise without inventing art, identity, or battle stats. `tmhm`, the
-breeding block and held `items` are optional in Gold's current schema; supply
+breeding block and held `items` are optional in Gen 2's current schema; supply
 them when the design uses them.
 
 An owned cry is strongly recommended. Register it in `mod.content.cries`
@@ -77,15 +81,15 @@ These optional convenience fields are copied into the framework marker:
 | Field | Purpose |
 | --- | --- |
 | `dex` | Requested ordering hint at or above 252; final IDs are contiguous. |
-| `dexEntry` | Gold Pokedex kind, height, weight, and text. |
+| `dexEntry` | Gen 2 Pokedex kind, height, weight, and text. |
 | `icon` | Custom 16x32, two-frame party/box icon definition or image path. |
 | `iconFallback` | Vanilla species whose party/box icon should be reused. |
-| `palette` | Custom Gold normal/shiny battle palette definition. |
+| `palette` | Custom Gen 2 normal/shiny battle palette definition. |
 | `paletteFallback` | Vanilla species whose battle palette should be reused. |
 | `forms` | Named cosmetic form art used for individual Pokemon. |
 | `defaultForm` | Form used when an individual has no explicit form. |
 
-`dexEntry.height` uses Gold's packed decimal display form (`507` means 5'07").
+`dexEntry.height` uses Gen 2's packed decimal display form (`507` means 5'07").
 You may instead supply `heightFt` and `heightIn`. `dexEntry.weight` is tenths of
 a pound; `weightLbs` is accepted as a convenience.
 
@@ -105,7 +109,7 @@ fallback field to reuse a closer vanilla species instead.
 
 ## Battle palettes
 
-Gold battle pictures use four color indices. The engine supplies pure white
+Gen 2 battle pictures use four color indices. The engine supplies pure white
 for index 0 and pure black for index 3. A species palette supplies the two
 middle colors for its normal and shiny forms:
 
@@ -128,18 +132,18 @@ expanded.exports.register(mod, {
 
 Each color is an `{ red, green, blue }` triple with integer channels from 0
 through 255. Supply exactly two triples per form. The framework copies this
-record into Gold's live palette table under the custom species string ID, so
+record into Gen 2's live palette table under the custom species string ID, so
 the same palette follows that species into front and back battle pictures and
-the Gold screens that render species colors. The engine chooses `shiny` when
+the Gen 2 screens that render species colors. The engine chooses `shiny` when
 the individual Pokemon has shiny DVs.
 
 Design the front and back sprite art as a four-shade image whose pixels mean
 white, light middle, dark middle and black. Normal and shiny forms share the
 same art and swap only the two middle colors. If the species sets
-`trueColor = true`, Gold deliberately bypasses this palette remapping and draws
+`trueColor = true`, Gen 2 deliberately bypasses this palette remapping and draws
 the PNG's own colors instead.
 
-To borrow an existing Gold palette, omit `palette` and use:
+To borrow an existing Gen 2 palette, omit `palette` and use:
 
 ```lua
 paletteFallback = "TANGELA"
@@ -150,7 +154,7 @@ Ditto is also the default. A supplied custom `palette` always wins over
 `paletteFallback`.
 
 Test the normal palette by getting the species into a battle at a known level.
-Test the shiny palette with an individual that actually has Gold's shiny DVs;
+Test the shiny palette with an individual that actually has Gen 2's shiny DVs;
 merely choosing shiny colors in the definition does not make every individual
 shiny.
 
@@ -191,10 +195,10 @@ requires the `engine_internals` permission.
 
 At `game.ready`, all marked species are sorted by requested `dex`, then by
 string ID. They receive contiguous `dex` and runtime `index` values beginning
-at 252. Contiguous assignment keeps Gold's national Pokedex traversal valid and
+at 252. Contiguous assignment keeps Gen 2's national Pokedex traversal valid and
 ensures every player with identical content computes the same mapping.
 
-Direct registry registration remains compatible: a complete Gold species with
+Direct registry registration remains compatible: a complete Gen 2 species with
 `dex >= 252` and no `index` is automatically adopted. The helper is preferred
 because it preserves author intent and strips an out-of-range index before
 schema validation.
@@ -239,7 +243,7 @@ assert(required, capabilityError)
 Use this dependency range in the pack manifest:
 
 ```json
-"expanded_species@>=0.6.5 <2.0.0"
+"expanded_species@>=0.6.6 <2.0.0"
 ```
 
 Expanded Species reserves `2.0.0` for a breaking provider API. Compatible
@@ -275,7 +279,7 @@ future framework versions.
 | `customPalettes` | Per-species battle palettes | species definition fields |
 | `localizedSpecies` | Namespaced name, kind and Pokédex text | species definition fields |
 | `cosmeticForms` | Per-individual named forms that survive evolution, trade, hatching and save/reload | `setForm`, `getForm`, `forms`, `formInfo` |
-| `goldFormScreens` | Gold screen bridges that route form art across battle, Summary, PC, Dex, trade, Hall of Fame, hatch and Photo Studio | `formScreenStatus` |
+| `goldFormScreens` | Gen 2 screen bridges that route form art across battle, Summary, PC, Dex, trade, Hall of Fame, hatch and Photo Studio | `formScreenStatus` |
 | `goldNestScreen` | Pokédex AREA nest marker and route-name bridge, for older engines that need it | `nestScreenStatus` |
 | `extendedGrass` | Added grass encounters that do not replace a route's vanilla slots | `addGrassEncounter` |
 | `extendedWater` | Added surfing encounters | `addWaterEncounter` |
@@ -286,7 +290,7 @@ future framework versions.
 | `scriptedStationary` | Stationary encounters with loss retry and completion state | `registerStationaryEncounter` |
 | `scriptedTrainers` | Custom trainers with parties, moves, items, forms and dialogue | `registerTrainerEncounter` |
 | `scriptedTrades` | NPC trades above #255, preserving nickname, OT, ID, item, DVs and form | `registerTrade` |
-| `vanillaTrainerPatches` | Insert, append or replace members of an existing Gold trainer without touching its NPC, dialogue, flags or rewards | `patchVanillaTrainer`, `trainerPatches`, `diagnoseTrainerPatches` |
+| `vanillaTrainerPatches` | Insert, append or replace members of an existing Gen 2 trainer without touching its NPC, dialogue, flags or rewards | `patchVanillaTrainer`, `trainerPatches`, `diagnoseTrainerPatches` |
 | `runtimeWildBattles` | Start a custom wild battle or hand over a Pokémon at runtime | `startWildBattle`, `givePokemon` |
 | `saveGuardian` | Quarantine and restore Pokémon whose species pack is missing | `guardSave`, `missingCount`, `missingInfo` |
 | `checkpointProfiles` | Record and compare the enabled-content set | `checkpointProfile`, `compareCheckpointProfile` |
@@ -384,7 +388,7 @@ uses for folder and packaged mods.
 
 ## Extended wild encounter pools
 
-Expanded Species adds new rows to an existing Gold grass or swimming
+Expanded Species adds new rows to an existing Gen 2 grass or swimming
 zone without replacing its seven grass slots or three water slots. Register
 the species first, then call the placement helper from the same entry point:
 
@@ -426,7 +430,7 @@ entry weight / (100 + total custom weight for that map and time)
 
 For example, one weight-1 species is 1/101 (about 0.99%). Five species with
 weight 4 each are individually 4/120 (3.33%) and collectively 20/120 (16.67%).
-When the vanilla branch wins, Gold's original 30/30/20/10/5/4/1 grass split or
+When the vanilla branch wins, Gen 2's original 30/30/20/10/5/4/1 grass split or
 60/30/10 water split runs unchanged. The map's encounter rate is also
 unchanged.
 
@@ -440,7 +444,7 @@ encounter registry. This preserves ownership/unload behavior and makes the
 extra rows visible to registry consumers such as the Pokedex area listing. It
 also uses the official `encounter.roll` hook for selection.
 
-Gold 0.1.94's nest finder already reads the merged `gen2Encounters` tables, but
+gen1recomp 0.1.94's nest finder already reads the merged `gen2Encounters` tables, but
 its AREA renderer looks up the resulting index in the wrong landmark field.
 Expanded Species supplies the correct `gen2Landmarks` table only while that
 screen draws, and only on engines that need it. **Current gen1recomp releases
@@ -456,13 +460,13 @@ mod.log:info("nest bridge installed=%s", tostring(status.installed))
 ```
 
 The `goldNestScreen` capability advertises that this correction is available.
-It affects grass and swimming nests only, matching Gold's original rules;
+It affects grass and swimming nests only, matching Gen 2's original rules;
 fishing, Headbutt, Rock Smash, Bug Contest and swarm-only placements do not
 create Pokédex nests.
 
 ### Swarm-only grass and water
 
-Use the swarm helpers when a custom Pokemon should appear only while Gold has
+Use the swarm helpers when a custom Pokemon should appear only while the game has
 substituted the map's swarm encounter table:
 
 ```lua
@@ -482,7 +486,7 @@ expanded.exports.addSwarmWaterEncounter(mod, {
 })
 ```
 
-The map must already have the corresponding Gold swarm-grass or swarm-water
+The map must already have the corresponding Gen 2 swarm-grass or swarm-water
 table. The added row is dormant during the map's normal encounter table. Swarm
 entries use the same base-table weight of 100 and the same ownership and
 duplicate rules as ordinary grass and water additions.
@@ -496,13 +500,39 @@ expanded.exports.addFishingEncounter(mod, {
   species = speciesId,
   level = 15,
   weight = 10,
+  time = "NITE", -- optional
 })
 ```
 
 Rod IDs are `OLD_ROD`, `GOOD_ROD`, and `SUPER_ROD`; `old`, `good`, and `super`
 are accepted aliases. The map must already have a non-`NONE` fishing group so
-Gold reaches its fishing hook. The original fishing result has total weight
+the Gen 2 world reaches its fishing hook. The original fishing result has total weight
 100, and all matching custom entries are added to that weighted choice.
+
+Omit `time`/`times` for an all-day addition. `time = "DAY"` and
+`times = { "DAY", "NITE" }` are both accepted. Crystal fishing has two
+native time sub-slots: `MORN` and `DAY` select its day row, while
+`NITE` and `DARK` select its night row. Expanded Species deliberately
+normalizes those aliases the same way. A time-limited row degrades to all-day
+only on an older engine that supplies no time context to the fishing hook.
+
+### Crystal caught data
+
+Crystal individuals may carry `caughtLevel`, `caughtLocation`,
+`caughtTime`, and `caughtByGender`. Treat field presence as the
+capability guard:
+
+```lua
+if mon.caughtLevel ~= nil then
+  mod.log:info("caught level: %d", mon.caughtLevel)
+end
+```
+
+Do not branch on `save.version == "crystal"`. Expanded Species gift helpers
+use `Mon.hasCaughtData` and `Mon.setGiftCaughtData` when those engine
+capabilities exist, so custom gifts receive Crystal's native gift marker. Wild
+and Contest capture stamping belongs to the engine; verify all four fields
+during the Crystal device pass before building pack logic that depends on them.
 
 ### Bug-Catching Contest
 
@@ -519,7 +549,7 @@ This is a global Contest pool rather than a route placement. `level` can be
 used instead of `minLevel` for a fixed level. The original Contest table has
 total weight 100; matching custom rows are weighted beside it.
 
-Gold 0.1.94 does not expose safe live encounter hooks for Headbutt or Rock
+gen1recomp 0.1.94 does not expose safe live encounter hooks for Headbutt or Rock
 Smash, and its three roaming slots are fixed save structures. Expanded Species
 therefore does not offer helpers for those systems. Do not patch their numeric
 ROM-style species operands with a virtual index; ask for the planned upstream
@@ -527,12 +557,12 @@ registry-based seams instead.
 
 ## Trainer and scripted encounter helpers
 
-Gold's original `givepoke`, `loadwildmon`, `loadtrainer`, and trade table use
+Gen 2's original `givepoke`, `loadwildmon`, `loadtrainer`, and trade table use
 cartridge-sized numeric operands. Do not feed a virtual index above 255 into
 those commands. Expanded Species registers provider-owned mod commands whose
 species fields remain registry string IDs.
 
-Each registration returns one ready-to-use Gold VM row. A custom runtime NPC
+Each registration returns one ready-to-use Gen 2 VM row. A custom runtime NPC
 can use it directly as its `scriptKey`:
 
 ```lua
@@ -561,7 +591,7 @@ end)
 
 Runtime objects are not serialized. Keep their returned handle for the running
 session and respawn them once after a full launch. These rows can also be used
-inside another Gold VM script integration owned by the species pack. The
+inside another Gen 2 VM script integration owned by the species pack. The
 helpers do not silently replace an original map object's ROM-derived script.
 
 ### Gifts
@@ -591,7 +621,7 @@ local row = expanded.exports.registerStationaryEncounter(mod, {
   id = "aurorix_shrine",
   species = "MY_PACK_AURORIX",
   level = 40,
-  shiny = true,                -- uses Gold's real shiny DV pattern
+  shiny = true,                -- uses Gen 2's real shiny DV pattern
   form = "winter",             -- optional cosmetic form
   introText = "The frozen statue moved!",
   afterText = "The shrine became quiet.",
@@ -601,7 +631,7 @@ local row = expanded.exports.registerStationaryEncounter(mod, {
 ```
 
 Running away or catching the mon completes a normal one-shot stationary
-encounter, matching Gold's static battle scripts. Losing does not set the
+encounter, matching Gen 2's static battle scripts. Losing does not set the
 provider flag. `hideObject` removes the talking object from the live map after
 the battle; use the helper completion query when deciding whether to respawn a
 runtime object on a later launch.
@@ -627,22 +657,22 @@ local row, class = expanded.exports.registerTrainerEncounter(mod, {
 })
 ```
 
-The helper owns a new Gold trainer class in the calling pack's trainers
+The helper owns a new Gen 2 trainer class in the calling pack's trainers
 registry. The class intentionally has no numeric `index`; the helper passes its
-roster directly to Gold's trainer builder. `pic` may point at owned custom art,
+roster directly to Gen 2's trainer builder. `pic` may point at owned custom art,
 or `picFallback` can reuse a vanilla portrait and palette without
 redistributing it. Party rows support `item` and `moves` using the ordinary
-Gold trainer schema. They may also set `form`; Expanded Species keeps that
+Gen 2 trainer schema. They may also set `form`; Expanded Species keeps that
 cosmetic value outside the vanilla trainer registry and applies it to the
 built battle Pokemon.
 
 ### Add custom Pokemon to existing vanilla trainers
 
-`patchVanillaTrainer` decorates the battle-local party returned by Gold's
+`patchVanillaTrainer` decorates the battle-local party returned by Gen 2's
 public `trainer.party` hook. It does not rewrite the trainer's extracted roster
 or byte-sized `loadtrainer` operands, so the vanilla NPC, dialogue, sight
 engagement, defeated flag, portrait, music, base reward, phone calls, and
-rematch scripts stay in control. Gold calculates the final payout from the
+rematch scripts stay in control. Gen 2 calculates the final payout from the
 last composed party member's level, so appending after the original final
 member can intentionally change the amount.
 
@@ -694,7 +724,7 @@ expanded.exports.patchVanillaTrainer(mod, {
 })
 ```
 
-Use Gold's exact symbolic class and member IDs. Different rematch rosters are
+Use Gen 2's exact symbolic class and member IDs. Different rematch rosters are
 different members, so Joey's `JOEY1`, `JOEY2`, and `JOEY3` must be decorated
 separately when all three should change.
 
@@ -716,7 +746,7 @@ assert(report.ok, report.errors[1] and report.errors[1].message)
 
 The diagnostic verifies the target, custom species, composed positions,
 replacement collisions, and six-member limit after `game.ready`. Every custom
-member is built through Gold's normal trainer builder, including its standard
+member is built through Gen 2's normal trainer builder, including its standard
 trainer DVs, level moves, optional held item, and optional explicit move list.
 
 ### NPC trades
@@ -737,8 +767,8 @@ local row = expanded.exports.registerTrade(mod, {
 ```
 
 Both `give` and `get` may be vanilla or custom string IDs. `shiny = true` is a
-shortcut for Gold's shiny DV bytes; otherwise supply two raw DV bytes or the
-named four-DV form above. The normal Gold party picker, validation, trade
+shortcut for Gen 2's shiny DV bytes; otherwise supply two raw DV bytes or the
+named four-DV form above. The normal Gen 2 party picker, validation, trade
 animation, OT data, cry, and one-time conversation are retained. Completion is
 mirrored into the provider's stable `mod.save` key, so a changed set of other
 mods cannot make a saved numeric trade slot refer to the wrong pack.
@@ -807,7 +837,7 @@ stationary, custom-trainer, vanilla-trainer-patch, `givePokemon`, and
 passes that field to the rebuilt hatchling record, so both the reveal and the
 resulting party Pokemon retain the explicit named form.
 
-On Gold 0.1.94, per-individual form routing works in battle front/back art,
+On gen1recomp 0.1.94, per-individual form routing works in battle front/back art,
 Summary, the selected PC preview, evolution, NPC-trade art and icon, Hall of
 Fame front/back art, the egg-hatch reveal, Cianwood Photo Studio, and party
 icons. Expanded Species also copies `expandedForm` into the temporary trade
@@ -815,26 +845,29 @@ animation record and the persistent Hall of Fame roster record. The Pokedex
 has no individual Pokemon record, so it uses the species' `defaultForm`; it
 shows base art when no default is declared.
 
-Gold's palette and cry selectors still receive only a species ID, not the
+Gen 2's palette and cry selectors still receive only a species ID, not the
 individual Pokemon. A form cannot select its own `palette` table or cry yet.
 However, `trueColor = true` form PNGs bypass palette remapping on all bridged
-screens, so authored colors display correctly. Evolution retains Gold's
+screens, so authored colors display correctly. Evolution retains Gen 2's
 blackout silhouette while its flash phase is active.
 
 The bridge uses the framework's declared `engine_internals` permission because
-these Gold 0.1.94 screens do not yet call the engine's official `Sprites.path`
+these gen1recomp 0.1.94 screens do not yet call the engine's official `Sprites.path`
 resolver. It activates only when the displayed Pokemon selects an Expanded
 Species form; vanilla Pokemon and custom species without forms stay on their
-original Gold paths. Developer tools can inspect installation health after
+original Gen 2 paths. Developer tools can inspect installation health after
 `game.ready`:
 
 ```lua
 local status = expanded.exports.formScreenStatus()
 assert(status.installed and next(status.errors) == nil,
-  "Gold form screen bridge did not install completely")
+  "Gen 2 form screen bridge did not install completely")
 ```
 
-The `goldFormScreens` capability advertises this coverage. Native all-screen
+The `goldFormScreens` capability advertises this coverage. Its name is
+retained for API 1 compatibility; the bridge itself targets the shared Gen 2
+screens used by Gold, Silver, and Crystal. `goldNestScreen` follows the same
+legacy-name rule. Native all-screen
 routing and per-individual palette/cry contexts remain tracked for upstream.
 
 ## Localization
@@ -897,7 +930,7 @@ end
 ```
 
 After any successful engine checkpoint restore, Expanded Species automatically
-runs Save Guardian again. Gold 0.1.94 emits no pre-restore event, so the
+runs Save Guardian again. gen1recomp 0.1.94 emits no pre-restore event, so the
 framework cannot transparently stop or inspect a checkpoint before the engine
 has applied it. The sidecar comparison must be performed by the checkpoint
 tool itself; a general pre-restore validation seam is tracked for upstream.
@@ -905,7 +938,7 @@ tool itself; a general pre-restore validation seam is tracked for upstream.
 ## Disabled-pack Save Guardian
 
 No extra registration is required. Expanded Species records the provider
-owner and stable string ID for live custom species. During Gold's `save.loading`
+owner and stable string ID for live custom species. During Gen 2's `save.loading`
 event, a Pokemon whose definition is unavailable is removed from active engine
 tables and retained as a complete record under Expanded Species' own `modData`
 bucket. This private **MISSING** storage is not a PC box and has no player edit,
@@ -915,7 +948,7 @@ When the species definition returns, the framework restores the record to its
 original party, box, Day-Care, pending-egg, or active Bug-Catching Contest
 location when available. It otherwise uses the first box with room. Party MAIL
 is preserved separately and forces restoration to wait for a free party slot,
-because Gold has no legal boxed MAIL representation.
+because Gen 2 has no legal boxed MAIL representation.
 
 Tools can inspect summary metadata without gaining access to edit hidden mon
 records:
@@ -927,7 +960,7 @@ for _, row in ipairs(expanded.exports.missingInfo()) do
 end
 ```
 
-Guarding normally runs itself on Gold's `save.loading` event. `guardSave(save)`
+Guarding normally runs itself on Gen 2's `save.loading` event. `guardSave(save)`
 runs the same pass on demand — omit the argument to use the live save — and is
 intended for tools and tests rather than ordinary pack code:
 
@@ -958,16 +991,18 @@ Boy save or scripting formats. Avoid paths that serialize species as one byte:
 Normal gen1recomp party/box saves, direct battles, registry-based encounters,
 Pokedex seen/caught state, and link fingerprints use string species IDs.
 
-Gold 0.1.94 also lacks safe registry-based seams for Headbutt, Rock Smash,
+gen1recomp 0.1.94 also lacks safe registry-based seams for Headbutt, Rock Smash,
 additional roaming slots, checkpoint pre-restore validation, per-individual
 form palettes/cries, and native form routing in every legacy screen. Expanded
-Species bridges the confirmed Gold form screens for its own records, while the
+Species bridges the confirmed Gen 2 form screens for its own records, while the
 remaining engine boundaries are not author-facing slots that should be patched.
 
 ## Pack testing checklist
 
 Test with Expanded Species and your pack enabled, then fully quit and relaunch
-Gold. Several steps need a specific Pokemon on demand — a developer spawn tool
+the target Gen 2 edition. Test Crystal first, then repeat compatibility checks
+on Gold and Silver. Several steps need a specific Pokemon on demand — a
+developer spawn tool
 makes that quick, but any route that reliably produces the individual you want
 works just as well:
 

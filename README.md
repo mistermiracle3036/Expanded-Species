@@ -1,17 +1,17 @@
 # Expanded Species
 
-Expanded Species is a Gold-only framework for gen1recomp that lets other mods
+Expanded Species is a Gen 2 framework for gen1recomp that lets other mods
 register new Pokemon after the original 251 instead of replacing an existing
 species.
 
 The framework keeps the vanilla species table intact, assigns deterministic
-runtime IDs beginning at 252, and integrates custom species with Gold's Pokedex,
+runtime IDs beginning at 252, and integrates custom species with Gen 2's Pokedex,
 party/box icons, palettes, engine-native saves, battles, breeding data, and
 extended weighted grass, swimming, swarm, fishing, and Bug Contest encounter
 pools. It also gives packs safe
 string-ID helpers for gifts, stationary encounters, custom trainers, NPC
 trades, and custom additions to existing vanilla trainer parties without using
-Gold's byte-sized species script operands, plus cosmetic forms, localization,
+Gen 2's byte-sized species script operands, plus cosmetic forms, localization,
 checkpoint profiles, and compatibility reports.
 
 ## For players
@@ -28,9 +28,11 @@ Expanded Species as a dependency — the pack supplies the Pokemon.
    downloaded copy of the zip from Files first.
 3. Fully quit and relaunch.
 
-**Pokemon Gold only.** Requires gen1recomp **0.1.94 or newer** in the 0.x/1.x
-line. It does not support Red, Blue or Yellow — on those games it is skipped
-silently rather than failing.
+**Pokemon Gold, Silver, and Crystal.** Requires gen1recomp **0.1.94 or newer**
+in the 0.x/1.x line. The manifest uses `"gen2"`, so Red, Blue, and Yellow
+skip the framework silently. Version 0.6.6 is source-audited against engine
+0.2.21; Crystal is the primary test target, while Crystal and Silver device
+verification remains pending until those test passes are completed.
 
 ## For mod makers
 
@@ -38,7 +40,7 @@ Declare this dependency in your manifest:
 
 ```json
 "dependencies": [
-  "expanded_species@>=0.6.5 <2.0.0"
+  "expanded_species@>=0.6.6 <2.0.0"
 ]
 ```
 
@@ -107,7 +109,7 @@ end
 ```
 
 Use a globally namespaced string ID, such as `MY_PACK_AURORIX`. Do not provide
-an `index`; Expanded Species assigns it after all content has passed Gold's
+an `index`; Expanded Species assigns it after all content has passed Gen 2's
 one-byte compatibility validation. See [AUTHOR_API.md](AUTHOR_API.md) for the
 complete contract, including natural route encounters.
 
@@ -142,14 +144,14 @@ The vanilla pool has weight 100. One custom entry with weight 1 therefore has
 a 1/101 chance when an encounter triggers; it does not change how often steps
 trigger battles.
 
-On older Gold builds, Expanded Species also repairs the Pokédex AREA renderer
+On older Gen 2 builds, Expanded Species also repairs the Pokédex AREA renderer
 so grass and water placements display their flashing nest marker and route
 name. **Current gen1recomp releases fix this natively**, and the bridge stands
 itself down when they do — it is only there so the AREA page still works on the
-engine versions this mod supports. Either way the encounter lookup is Gold's
+engine versions this mod supports. Either way the encounter lookup is Gen 2's
 own; the bridge never replaces it.
 
-Gold 0.1.94 also has safe helpers for fishing, active swarm tables, and the
+gen1recomp 0.1.94 also has safe helpers for fishing, active swarm tables, and the
 Bug-Catching Contest:
 
 ```lua
@@ -159,6 +161,7 @@ api.addFishingEncounter(mod, {
   species = speciesId,
   level = 15,
   weight = 10,
+  time = "NITE", -- optional: DAY/MORN or NITE/DARK
 })
 
 api.addBugContestEncounter(mod, {
@@ -169,6 +172,11 @@ api.addBugContestEncounter(mod, {
 })
 ```
 
+Omit `time` for an all-day addition. Crystal's fishing tables distinguish a
+day sub-slot (`MORN` and `DAY`) from a night sub-slot (`NITE` and `DARK`);
+Expanded Species applies the same grouping. Existing registrations without a
+time remain unchanged on Gold, Silver, and Crystal.
+
 `addSwarmGrassEncounter` and `addSwarmWaterEncounter` use the same fields as
 their normal counterparts and are considered only while that map's swarm table
 is active. Headbutt, Rock Smash, and extra roaming slots still need upstream
@@ -177,8 +185,8 @@ encounter hooks and are not altered.
 ### Gifts, stationary encounters, trainers and trades
 
 Each helper registers one provider-owned command and returns a ready-to-use
-Gold VM row. Put that row in a custom runtime NPC's `scriptKey`, or call the
-same provider command from a Gold script integration owned by your pack.
+Gen 2 VM row. Put that row in a custom runtime NPC's `scriptKey`, or call the
+same provider command from a Gen 2 script integration owned by your pack.
 
 ```lua
 local giftRow = framework.exports.registerGift(mod, {
@@ -204,7 +212,7 @@ examples and custom NPC wiring.
 
 ### Add custom Pokemon to vanilla trainers
 
-Expanded Species can decorate an existing Gold trainer without replacing its NPC,
+Expanded Species can decorate an existing Gen 2 trainer without replacing its NPC,
 dialogue, defeated flag, rematch logic, portrait, music, or reward rules:
 
 ```lua
@@ -225,7 +233,7 @@ Insertion positions are one-based. Position `1` becomes the lead, any position
 through the current party size inserts between members, and current size plus
 one inserts at the end. Use `action = "append"` when the current size is not
 known, or `action = "replace"` to change a member without increasing party
-size. Gold's six-Pokemon limit is always enforced. Gold calculates the payout
+size. Gen 2's six-Pokemon limit is always enforced. Gen 2 calculates the payout
 from the final composed party member's level, so appending a different-level
 member can change the amount while retaining the trainer's normal base reward.
 See
@@ -250,7 +258,7 @@ forms = {
 
 Pass `form = "winter"` to a gift, stationary encounter, custom trainer member,
 vanilla-trainer insertion, or custom NPC trade, or call
-`api.setForm(mon, "winter")`. On Gold 0.1.94, Expanded Species routes the live
+`api.setForm(mon, "winter")`. On gen1recomp 0.1.94, Expanded Species routes the live
 form through battles, Summary, the selected PC preview, evolution, NPC-trade
 art and icons, Hall of Fame, egg hatching, Cianwood Photo Studio, and party
 icons. The Pokedex has no individual Pokemon record, so it displays the
@@ -260,7 +268,7 @@ yet engine-supported.
 
 ### Palettes
 
-Gold battle pictures use four shades. The engine supplies white and black;
+Gen 2 battle pictures use four shades. The engine supplies white and black;
 species-pack authors supply the two middle RGB colors for both the normal and
 shiny forms:
 
@@ -285,7 +293,7 @@ true-color, shiny-testing, and multi-file species-pack guidance.
 
 ### Localization and compatibility checks
 
-Expanded Species resolves custom names and Dex text through Gold's strings
+Expanded Species resolves custom names and Dex text through Gen 2's strings
 catalog at `game.ready`. Translation add-ons can use namespaced keys such as
 `expanded_species.MY_PACK_AURORIX.name|AURORIX` and
 `expanded_species.MY_PACK_AURORIX.dex.text|It paints the sky<NEXT>with icy light.`
@@ -306,14 +314,24 @@ can query the nest adapter directly with `api.nestScreenStatus()` after
 Checkpoint tools can store `api.checkpointProfile()` beside a persistent
 checkpoint and call `api.compareCheckpointProfile(savedProfile)` before asking
 the engine to restore it. Expanded Species also re-runs Save Guardian after a
-successful checkpoint restoration. Gold 0.1.94 has no pre-restore mod event,
+successful checkpoint restoration. gen1recomp 0.1.94 has no pre-restore mod event,
 so the sidecar comparison is required for early refusal; full engine-owned
 checkpoint preflight remains an upstream request.
 
+### Crystal caught data
+
+Crystal individuals can carry `caughtLevel`, `caughtLocation`,
+`caughtTime`, and `caughtByGender`. Read these fields by presence rather
+than checking the edition name: `if mon.caughtLevel ~= nil then ... end`.
+Gifts created through Expanded Species use the engine's official Crystal
+gift-data helper when that capability exists. Ordinary wild and Contest
+capture stamping remains owned by the engine and must be included in Crystal
+device testing.
+
 ### Disabled-pack save safety
 
-Expanded Species protects a Gold save when a species pack is disabled, removed, or
-temporarily fails to load. Before Gold opens the world, custom Pokemon whose
+Expanded Species protects a Gen 2 save when a species pack is disabled, removed, or
+temporarily fails to load. Before the game opens the world, custom Pokemon whose
 species definitions are unavailable are removed from active engine tables and
 kept intact in Expanded Species' private save data. The player cannot see or
 interact with this internal **MISSING** storage through the PC.
@@ -337,12 +355,12 @@ disable/update guard is still the complete long-term solution.
 - Renaming or removing a shipped species ID is not yet an automatic migration;
   restore the old ID or wait for the planned alias/migration API.
 - A physical cartridge `.sav` cannot encode virtual species above 255.
-- Gold ROM-script operations that take a one-byte species number cannot name a
+- Gen 2 ROM-script operations that take a one-byte species number cannot name a
   virtual species. Use the registry, trainer-decoration, and script helpers
   instead.
-- Gold 0.1.94 does not expose safe Headbutt, Rock Smash, extra-roamer,
+- gen1recomp 0.1.94 does not expose safe Headbutt, Rock Smash, extra-roamer,
   per-form-palette/cry, native all-screen form routing, or checkpoint preflight
-  seams. Expanded Species supplies narrowly scoped Gold screen bridges
+  seams. Expanded Species supplies narrowly scoped Gen 2 screen bridges
   for its own cosmetic forms and the Pokédex nest landmark lookup.
 - Link battles require both players to have matching framework and species-pack
   data. Species packs should set `"affects_link": true`.

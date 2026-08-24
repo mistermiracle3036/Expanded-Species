@@ -6,9 +6,9 @@
 -- harnesses, modkit lint, modkit validate and gen2check all pass without ever
 -- reading this file.
 return {
-  summary = "A Gold framework for custom species, uncapped encounters, trainer helpers, and missing-pack save protection.",
+  summary = "A Gen 2 framework for custom species, uncapped encounters, trainer helpers, and missing-pack save protection.",
   author = "Mister Miracle",
-  tags = { "framework", "gold", "gen2", "modding-tool" },
+  tags = { "framework", "crystal", "gen2", "modding-tool" },
   differences = {
     "adds custom species above #255, with their own sprites, icons, cries and Pokedex entries",
     "expands natural encounters -- grass, water, fishing rods and swarms -- without replacing a route's vanilla slots or altering its base rate",
@@ -21,5 +21,5 @@ return {
   credits = { "pret/pokecrystal and pokegold research",
               "gen1recomp engine",
               "Pokemon characters are used as fan tribute" },
-  compat = "Pokemon Gold only. Bundles no third-party code or assets. Other mods extend it through the author API (see AUTHOR_API.md); two independent providers can add to the same trainer without conflicting.",
+  compat = "Pokemon Gold, Silver, and Crystal. Bundles no third-party code or assets. Other mods extend it through the author API (see AUTHOR_API.md); two independent providers can add to the same trainer without conflicting.",
 }
