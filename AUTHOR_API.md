@@ -2,9 +2,10 @@
 
 API version: `1` (all capabilities are additive and backward-compatible)
 
-Manifest target: `"games": ["gen2"]` (Gold, Silver, and Crystal). Version
-0.6.6 is source-audited against gen1recomp 0.2.21 with Crystal as the primary
-target; Crystal and Silver device verification is still pending.
+Manifest target: `"games": ["gen1", "gen2"]` (Red, Blue, Yellow, Gold,
+Silver, and Crystal). Version 0.7.0 is source-audited against gen1recomp 0.2.24.
+The 0.6.6 Gen 2 surface passed its Crystal device test; the new Gen 1 paths are
+the focus of the 0.7.0 phone test build.
 
 ## Contract
 
@@ -13,9 +14,9 @@ Passing your own `mod` object is important: it makes the species belong to your
 pack, so gen1recomp can validate, diagnose, and unload content under the correct
 owner.
 
-The helper returns the normalized registry record. It removes `index` before
-schema validation and tags the record for deterministic allocation during
-`game.ready`.
+The helper returns the normalized registry record for the active generation.
+It removes `index` before schema validation and tags the record for
+deterministic runtime allocation during `game.ready`.
 
 The framework never overrides an existing registry key. A duplicate string ID
 is rejected by gen1recomp's normal content registry.
@@ -51,6 +52,8 @@ pack registered.
 
 ## Required species fields
 
+### Gen 2 author shape
+
 Gen 2's Pokemon schema requires these core fields after framework defaults are
 applied:
 
@@ -65,6 +68,32 @@ The framework defaults `types` to `{ "NORMAL" }`, `catchRate` to `45`,
 species concise without inventing art, identity, or battle stats. `tmhm`, the
 breeding block and held `items` are optional in Gen 2's current schema; supply
 them when the design uses them.
+
+### Gen 1 conversion
+
+A cross-generation pack may keep the Gen 2 author shape above. On Red, Blue,
+and Yellow, Expanded Species converts it to Gen 1's registry shape before the
+provider writes the record:
+
+- `baseStats.special` is used directly when supplied. Otherwise the higher of
+  `specialAttack` and `specialDefense` becomes Gen 1's single `special` stat.
+- `picSize` becomes `frontSize`.
+- level-1 rows in `levelMoves` become `level1Moves`, and the full list becomes
+  `learnset`. A Gen 1-only definition may provide `level1Moves` and `learnset`
+  directly.
+- `GROWTH_MEDIUM_FAST`, `GROWTH_MEDIUM_SLOW`, `GROWTH_FAST`, and `GROWTH_SLOW`
+  map to Gen 1's corresponding growth-rate IDs.
+- `EVOLVE_LEVEL`, `EVOLVE_ITEM`, and `EVOLVE_TRADE` map to Gen 1's `LEVEL`,
+  `ITEM`, and `TRADE` rows, with `into` converted to `species`.
+- Happiness and stat-comparison evolutions have no Gen 1 equivalent. They are
+  skipped on Gen 1 and reported as a preflight warning; they remain unchanged
+  on Gen 2.
+- Gen 2 breeding fields, held-item fields, happiness, gender, inline palette
+  tables, and cosmetic forms are omitted on Gen 1.
+
+Moves, types, items used for evolution, cries, and growth rates must exist in
+the active game's registries. A move introduced in Gen 2 does not become
+available in Red merely because the species definition is converted.
 
 An owned cry is strongly recommended. Register it in `mod.content.cries`
 before the species record, use the same globally namespaced ID for both, and
@@ -88,6 +117,14 @@ These optional convenience fields are copied into the framework marker:
 | `paletteFallback` | Vanilla species whose battle palette should be reused. |
 | `forms` | Named cosmetic form art used for individual Pokemon. |
 | `defaultForm` | Form used when an individual has no explicit form. |
+
+The convenience table above describes the complete Gen 2 presentation
+surface. Gen 1 uses the owned front/back sprites, cry, and schema-compatible
+icon directly. Its original Pokédex list remains bounded to the cartridge's
+native entries, and its palette registry has a different contract, so
+`customDex`, `customPalettes`, `localizedSpecies`, and `cosmeticForms` report
+false there. Do not infer support from a field surviving preflight; query the
+capability before building a feature around it.
 
 `dexEntry.height` uses Gen 2's packed decimal display form (`507` means 5'07").
 You may instead supply `heightFt` and `heightIn`. `dexEntry.weight` is tenths of
@@ -243,7 +280,7 @@ assert(required, capabilityError)
 Use this dependency range in the pack manifest:
 
 ```json
-"expanded_species@>=0.6.6 <2.0.0"
+"expanded_species@>=0.7.0 <2.0.0"
 ```
 
 Expanded Species reserves `2.0.0` for a breaking provider API. Compatible
@@ -252,6 +289,9 @@ named capabilities. If a future 2.x release adds a new facade, a pack must opt
 into it deliberately by changing both its dependency range and `getApi` call.
 The legacy `supports(name)` and `capabilities()` queries remain useful for
 features that are optional rather than required.
+
+Use the `>=0.7.0` minimum for a pack that declares `"gen1"`. A Gen 2-only pack
+that does not use the new conversion may retain its existing `>=0.6.6` range.
 
 `supportsApi(version)` answers whether a facade number is served at all. It is
 the cheap check behind `getApi`, and returns a plain boolean:
@@ -295,6 +335,24 @@ future framework versions.
 | `saveGuardian` | Quarantine and restore Pokémon whose species pack is missing | `guardSave`, `missingCount`, `missingInfo` |
 | `checkpointProfiles` | Record and compare the enabled-content set | `checkpointProfile`, `compareCheckpointProfile` |
 | `compatibilityReports` | Provider/species compatibility summary | `compatibilityReport`, `formatCompatibilityReport` |
+
+On Gen 1, the generation-neutral authoring and safety capabilities remain
+available: preflight/defaults/batch registration, capability and metadata
+queries, diagnostics, grass, water, runtime wild battles/direct gifts, Save
+Guardian, checkpoint profiles, and compatibility reports. The following names
+return false on Gen 1 and true on Gen 2:
+
+```text
+customDex, customPalettes, localizedSpecies, cosmeticForms,
+goldFormScreens, goldNestScreen, extendedSwarms, extendedFishing,
+extendedBugContest, gifts, scriptedStationary, scriptedTrainers,
+scriptedTrades, vanillaTrainerPatches
+```
+
+Here `gifts` means the registered Gen 2 VM helper. The generation-neutral
+`givePokemon` function remains available under `runtimeWildBattles` on Gen 1.
+Always call `supports` or `requireCapabilities` before registering one of the
+optional helpers.
 
 A capability is only ever **added**, never removed or repurposed, for the whole
 `getApi(1)` contract. An unknown name simply reports as unsupported, so probing
@@ -388,9 +446,9 @@ uses for folder and packaged mods.
 
 ## Extended wild encounter pools
 
-Expanded Species adds new rows to an existing Gen 2 grass or swimming
-zone without replacing its seven grass slots or three water slots. Register
-the species first, then call the placement helper from the same entry point:
+Expanded Species adds new rows to an existing grass or swimming zone without
+replacing its vanilla slots. Register the species first, then call the
+placement helper from the same entry point:
 
 ```lua
 expanded.exports.addGrassEncounter(mod, {
@@ -414,6 +472,18 @@ must be an integer from 1 through 100. Weight must be a positive integer.
 Grass accepts `time = "MORN"`, `"DAY"`, or `"NITE"`, or a `times` list;
 omitting both places the species in all three lists. `DARK` is accepted as an
 alias for `NITE`.
+
+On Gen 1 the encounter registry is keyed by map and has no time-of-day split.
+`addGrassEncounter` and `addWaterEncounter` patch the named map's `grass` or
+`water` record and add the same provider-owned weighted pool used on Gen 2.
+`time`/`times` are accepted for a cross-generation definition but do not
+filter Red, Blue, or Yellow: the placement is added once and is available
+whenever that terrain can encounter. Gen 1's base encounter rate and original
+probability buckets remain unchanged.
+
+Swarms, rod pools, and the Bug-Catching Contest are Gen 2-only. Their
+capabilities report false on Gen 1 and their registration helpers raise a
+generation-specific error if called without a guard.
 
 The map must already have the requested kind of encounter table. The helper
 fails with the map ID in its error instead of silently creating a zone with no
@@ -790,6 +860,19 @@ local ok, err = expanded.exports.startWildBattle(speciesId, 20, {
 })
 ```
 
+Both functions are available on Gen 1. `givePokemon` builds a normal Gen 1
+individual, stamps the player's OT, marks `pokedex.owned`, and uses Red's party
+then 12-box storage path. `nickname`, named DVs, explicit moves, and `allowBox`
+are supported; Gen 2-only held items, happiness, shiny presentation, and forms
+are not. On Gen 1, `startWildBattle` deliberately delegates to the engine's
+public `WorldAPI:startWildBattle(species, level)` seam, so its optional Gen 2
+individual overrides and completion callback are not available. Query
+`cosmeticForms` or another named feature before including those options.
+
+The registered `registerGift`, stationary, trainer, and trade rows below are
+Gen 2 VM helpers and report unsupported on Gen 1. A Gen 1 pack may still call
+`givePokemon` from its own confirmed Gen 1 script integration.
+
 One-time state can be queried when spawning actors, and reset by a pack's own
 developer option:
 
@@ -938,8 +1021,8 @@ tool itself; a general pre-restore validation seam is tracked for upstream.
 ## Disabled-pack Save Guardian
 
 No extra registration is required. Expanded Species records the provider
-owner and stable string ID for live custom species. During Gen 2's `save.loading`
-event, a Pokemon whose definition is unavailable is removed from active engine
+owner and stable string ID for live custom species. During the active game's
+`save.loading` event, a Pokemon whose definition is unavailable is removed from active engine
 tables and retained as a complete record under Expanded Species' own `modData`
 bucket. This private **MISSING** storage is not a PC box and has no player edit,
 withdraw, release, battle, trade, or breeding surface.
@@ -949,6 +1032,11 @@ original party, box, Day-Care, pending-egg, or active Bug-Catching Contest
 location when available. It otherwise uses the first box with room. Party MAIL
 is preserved separately and forces restoration to wait for a free party slot,
 because Gen 2 has no legal boxed MAIL representation.
+
+The same pass runs on Gen 1. It covers the party, all 12 PC boxes, and Gen 1's
+single Day Care slot; fallback restoration never creates Gen 2's boxes 13 or
+14. Gen 1 has no held-item MAIL, breeding egg slot, or Bug-Catching Contest
+stash, so those locations remain part of the unchanged Gen 2 path only.
 
 Tools can inspect summary metadata without gaining access to edit hidden mon
 records:
@@ -960,7 +1048,8 @@ for _, row in ipairs(expanded.exports.missingInfo()) do
 end
 ```
 
-Guarding normally runs itself on Gen 2's `save.loading` event. `guardSave(save)`
+Guarding normally runs itself on the active generation's `save.loading` event.
+`guardSave(save)`
 runs the same pass on demand — omit the argument to use the live save — and is
 intended for tools and tests rather than ordinary pack code:
 
@@ -989,7 +1078,8 @@ Boy save or scripting formats. Avoid paths that serialize species as one byte:
 - ROM routines that translate through the original species-index table
 
 Normal gen1recomp party/box saves, direct battles, registry-based encounters,
-Pokedex seen/caught state, and link fingerprints use string species IDs.
+Pokedex seen/owned-or-caught state, and link fingerprints use string species
+IDs.
 
 gen1recomp 0.1.94 also lacks safe registry-based seams for Headbutt, Rock Smash,
 additional roaming slots, checkpoint pre-restore validation, per-individual
@@ -997,11 +1087,34 @@ form palettes/cries, and native form routing in every legacy screen. Expanded
 Species bridges the confirmed Gen 2 form screens for its own records, while the
 remaining engine boundaries are not author-facing slots that should be patched.
 
+## Engine source audit for 0.7.0
+
+These generation branches were verified against gen1recomp v0.2.24 rather than
+inferred from the Gold runtime:
+
+- `src/core/GameVersion.lua:126-164` — active edition and generation lookup.
+- `src/render/TextBox.lua:184-220` — `\f` pages and `\n`/`\v` lines; `<NEXT>`
+  is not a paginator token.
+- `src/mods/Schemas.lua:780-870` — Gen 1 and Gen 2 Pokémon record shapes.
+- `src/mods/Schemas.lua:1019-1071` — map-keyed Gen 1 encounters and kind-keyed
+  Gen 2 encounter registries.
+- `src/world/OverworldController.lua:4022-4045,4168-4181` — the shared
+  `encounter.roll` context for grass and surfing.
+- `src/world/WorldAPI.lua:542-584` — supported Gen 1 runtime wild battle seam.
+- `src/core/SaveData.lua:1950-1954,2427-2481` and
+  `src/pokemon/Boxes.lua:10-52` — Gen 1 save initialization, legacy box
+  migration, 12-box layout, and deposit behavior.
+- `src/battle/BattleState.lua:616-622` — Gen 1 player-OT stamping.
+
+If a later engine changes one of these shapes, prefer capability checks and the
+public registry/world APIs named here over copying the old implementation.
+
 ## Pack testing checklist
 
 Test with Expanded Species and your pack enabled, then fully quit and relaunch
-the target Gen 2 edition. Test Crystal first, then repeat compatibility checks
-on Gold and Silver. Several steps need a specific Pokemon on demand — a
+the target edition. For a cross-generation pack, test Crystal first, repeat the
+Gen 2 compatibility checks on Gold and Silver, then repeat the supported subset
+on Red, Blue, and Yellow. Several steps need a specific Pokemon on demand — a
 developer spawn tool
 makes that quick, but any route that reliably produces the individual you want
 works just as well:

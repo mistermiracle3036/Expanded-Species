@@ -6,20 +6,20 @@
 -- harnesses, modkit lint, modkit validate and gen2check all pass without ever
 -- reading this file.
 return {
-  summary = "A Gen 2 framework for custom species, uncapped encounters, trainer helpers, and missing-pack save protection.",
+  summary = "A cross-generation framework for custom species, expanded encounters, and missing-pack save protection.",
   author = "Mister Miracle",
-  tags = { "framework", "crystal", "gen2", "modding-tool" },
+  tags = { "framework", "gen1", "gen2", "crystal", "modding-tool" },
   differences = {
-    "adds custom species above #255, with their own sprites, icons, cries and Pokedex entries",
-    "expands natural encounters -- grass, water, fishing rods and swarms -- without replacing a route's vanilla slots or altering its base rate",
-    "scripted encounter helpers: gifts, stationary encounters, custom trainers and NPC trades, all one-time and save-aware",
-    "custom Pokemon can be inserted into vanilla trainer parties without breaking sight lines, payouts, defeated flags or phone rematches",
-    "per-individual named forms that survive evolution, trading, hatching and save/reload",
+    "adds custom species above #255, with owned sprites, icons and cries; Gen 2 also supplies expanded Pokedex and palette integration",
+    "expands grass and water encounters in every supported game without replacing vanilla slots; Gen 2 also supports fishing rods, swarms and Bug Contest",
+    "Gen 2 scripted encounter helpers: gifts, stationary encounters, custom trainers and NPC trades, all one-time and save-aware",
+    "Gen 2 custom Pokemon can be inserted into vanilla trainer parties without breaking sight lines, payouts, defeated flags or phone rematches",
+    "Gen 2 per-individual named forms survive evolution, trading, hatching and save/reload",
     "a missing-pack Save Guardian: if a species pack is removed, its Pokemon are quarantined safely and restored when the pack returns, rather than corrupting the save",
     "this is a FRAMEWORK -- on its own it adds no Pokemon. Species packs built against it supply the content",
   },
   credits = { "pret/pokecrystal and pokegold research",
               "gen1recomp engine",
               "Pokemon characters are used as fan tribute" },
-  compat = "Pokemon Gold, Silver, and Crystal. Bundles no third-party code or assets. Other mods extend it through the author API (see AUTHOR_API.md); two independent providers can add to the same trainer without conflicting.",
+  compat = "Pokemon Red, Blue, Yellow, Gold, Silver, and Crystal. Gen 1 serves the core species, encounter, runtime battle/gift and Save Guardian subset; Gen 2 serves the complete API. Bundles no third-party code or assets.",
 }

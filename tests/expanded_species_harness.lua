@@ -1160,8 +1160,18 @@ expectEqual(guardedSave.bugContest.stash[1].customField, "stash-record",
 expectEqual(guardedSave.bugContest.caught.customField, "contest-record",
     "contest caught record returns")
 eventCallbacks["save.loaded"]({ save = guardedSave })
-expect(shownText and shownText:find("5 CUSTOM POKEMON RESTORED", 1, true),
+expect(shownText and shownText:find("5 CUSTOM POKEMON\fRESTORED.", 1, true),
     "player receives an in-game restoration notice")
+expect(not shownText:find("<NEXT>", 1, true),
+    "guardian notice uses TextBox page breaks, not ROM charmap tokens")
+for page in (shownText .. "\f"):gmatch("(.-)\f") do
+    local lineCount = 0
+    for line in (page .. "\n"):gmatch("(.-)\n") do
+        lineCount = lineCount + 1
+        expect(#line <= 18, "guardian notice line fits the 18-column box")
+    end
+    expect(lineCount <= 2, "guardian notice page has at most two lines")
+end
 
 local conflictParty = {}
 for index = 1, 6 do
@@ -1228,7 +1238,7 @@ shownText = nil
 eventCallbacks["checkpoint.restored"]({ game = game, kind = "overworld" })
 expectEqual(framework.exports.missingCount(), 1,
     "successful checkpoint restore quarantines newly missing content")
-expect(shownText and shownText:find("SAFE STORAGE", 1, true),
+expect(shownText and shownText:find("MOVED TO SAFE\nSTORAGE.", 1, true),
     "checkpoint restore gives an overworld safety notice")
 pokemon.TEST_PACK_ALPHA = checkpointDefinition
 framework.exports.guardSave(checkpointSave)

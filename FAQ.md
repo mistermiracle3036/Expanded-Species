@@ -7,15 +7,16 @@ well.
 
 ## Does it replace MissingNo. or a vanilla Pokemon?
 
-No. Gen 2's original 251 keep their records and numeric identities. Custom
-species are allocated from 252 upward.
+No. Each game's original species keep their records and numeric identities.
+Custom species are allocated from 252 upward at runtime.
 
 ## How can it go beyond 255?
 
-Gen 2's optional registry `index` is capped because it represents a Game Boy
-byte. gen1recomp's live party, boxes, battles, and save data identify Pokemon by
-string ID. Expanded Species waits until content validation is complete, then
-adds deterministic runtime-only indices for systems that need ordering.
+The optional cartridge `index` is capped because it represents a Game Boy
+byte. gen1recomp's live party, boxes, battles, and save data identify Pokemon
+by string ID. Expanded Species waits until content validation is complete,
+then assigns deterministic runtime ordering without writing an out-of-range
+Gen 1 cartridge index.
 
 ## Can I export custom Pokemon to a cartridge save?
 
@@ -24,10 +25,11 @@ species representation. Engine-native gen1recomp saves are the supported path.
 
 ## Which games can I use this in?
 
-Expanded Species targets Pokemon Gold, Silver, and Crystal through the shared
-Gen 2 schema and runtime. It does not support Red, Blue, or Yellow. Version
-0.6.6 has been source-audited for all three; Crystal and Silver device
-verification remains pending.
+Expanded Species targets Red, Blue, Yellow, Gold, Silver, and Crystal. Gen 1
+supports custom species, grass/water additions, runtime wild battles/direct
+gifts, diagnostics, and Save Guardian. Forms, expanded Pokédex rows and
+palettes, fishing, swarms, Bug Contest, scripted helpers, and trainer patches
+remain Gen 2-only. Version 0.7.0 is source-audited against engine 0.2.24.
 
 ## What happens if a species pack is removed?
 
@@ -176,4 +178,3 @@ from the load log and which other mods were enabled.
 They are not gone. Expanded Species quarantines Pokemon whose species pack is
 missing and restores them when the pack returns — see "What happens if a species
 pack is removed?" above. Do not edit `modData` by hand.
-

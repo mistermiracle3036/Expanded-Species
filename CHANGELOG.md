@@ -1,3 +1,38 @@
+## [0.7.0] — 2026-08-26
+
+### Added
+
+- Added Red, Blue, and Yellow support for custom species registration using
+  Gen 1's five-stat, move-list, sprite-size, evolution, and growth-rate record
+  shapes. Cross-generation definitions may continue using the existing Gen 2
+  author shape; Expanded Species converts the supported fields on Gen 1.
+- Added Gen 1 grass and surfing additions without replacing vanilla slots or
+  changing a map's base encounter rate.
+- Added Gen 1 runtime wild battles and direct party/box gifts through the
+  engine's generation-specific public Pokémon builders.
+- Extended Save Guardian quarantine and restoration to Gen 1's 12 PC boxes,
+  party, and Day Care while retaining Gen 2's 14-box, MAIL, breeding, and Bug
+  Contest behavior.
+
+### Fixed
+
+- Save Guardian notices now use real `\f` A-button page breaks and fit every
+  page into the 18-column, two-line text box. The old `<NEXT>` token rendered
+  as text and allowed the notice to scroll past unreadably.
+- Capability queries now report Gen 2-only forms, palettes, Pokédex expansion,
+  swarms, fishing, Bug Contest, scripted helpers, trainer patches, and screen
+  bridges as unavailable on Red, Blue, and Yellow instead of advertising paths
+  those runtimes cannot serve.
+
+### Compatibility
+
+- The API facade remains version 1. Existing Gold, Silver, and Crystal species
+  packs and all current Gen 2 behavior are unchanged.
+- Gen 1 packs should depend on `expanded_species@>=0.7.0 <2.0.0` and branch on
+  named capabilities for optional Gen 2 features.
+- Source-audited against gen1recomp 0.2.24. The existing complete Gen 2 harness
+  and the new Gen 1 schema/encounter/battle/gift/Guardian harness both pass.
+
 ## [0.6.6] — 2026-08-24
 
 ### Added

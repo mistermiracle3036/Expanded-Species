@@ -1,10 +1,11 @@
 {
   "id": "expanded_species",
   "name": "Expanded Species",
-  "version": "0.6.6",
+  "version": "0.7.0",
   "author": "Mister Miracle",
-  "description": "Gen 2 framework for custom Pokemon, safe saves, extended encounters, cosmetic forms, and author diagnostics.",
+  "description": "Cross-generation framework for custom Pokemon, safe saves, extended encounters, and author diagnostics.",
   "games": [
+    "gen1",
     "gen2"
   ],
   "github": "mistermiracle3036/Expanded-Species",

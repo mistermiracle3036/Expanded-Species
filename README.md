@@ -1,18 +1,17 @@
 # Expanded Species
 
-Expanded Species is a Gen 2 framework for gen1recomp that lets other mods
-register new Pokemon after the original 251 instead of replacing an existing
-species.
+Expanded Species is a cross-generation framework for gen1recomp that lets
+other mods register new Pokemon after the original roster instead of replacing
+an existing species.
 
 The framework keeps the vanilla species table intact, assigns deterministic
-runtime IDs beginning at 252, and integrates custom species with Gen 2's Pokedex,
-party/box icons, palettes, engine-native saves, battles, breeding data, and
-extended weighted grass, swimming, swarm, fishing, and Bug Contest encounter
-pools. It also gives packs safe
-string-ID helpers for gifts, stationary encounters, custom trainers, NPC
-trades, and custom additions to existing vanilla trainer parties without using
-Gen 2's byte-sized species script operands, plus cosmetic forms, localization,
-checkpoint profiles, and compatibility reports.
+runtime IDs beginning at 252, and integrates custom species with
+engine-native saves and battles in Red, Blue, Yellow, Gold, Silver, and
+Crystal. Gen 1 supports species records, grass and swimming additions, direct
+gifts and wild battles, diagnostics, and Save Guardian. Gen 2 additionally
+supports the expanded Pokedex, palettes, breeding data, swarms, fishing, Bug
+Contest, scripted encounter/trainer/trade helpers, vanilla-trainer patches,
+cosmetic forms, and the shared Gen 2 screen bridges.
 
 ## For players
 
@@ -28,11 +27,10 @@ Expanded Species as a dependency — the pack supplies the Pokemon.
    downloaded copy of the zip from Files first.
 3. Fully quit and relaunch.
 
-**Pokemon Gold, Silver, and Crystal.** Requires gen1recomp **0.1.94 or newer**
-in the 0.x/1.x line. The manifest uses `"gen2"`, so Red, Blue, and Yellow
-skip the framework silently. Version 0.6.6 is source-audited against engine
-0.2.21; Crystal is the primary test target, while Crystal and Silver device
-verification remains pending until those test passes are completed.
+**Pokemon Red, Blue, Yellow, Gold, Silver, and Crystal.** Requires gen1recomp
+**0.1.94 or newer** in the 0.x/1.x line. Version 0.7.0 is source-audited
+against engine 0.2.24. Crystal passed the complete 0.6.6 device suite; the new
+Gen 1 paths are under phone testing in 0.7.0.
 
 ## For mod makers
 
@@ -40,7 +38,7 @@ Declare this dependency in your manifest:
 
 ```json
 "dependencies": [
-  "expanded_species@>=0.6.6 <2.0.0"
+  "expanded_species@>=0.7.0 <2.0.0"
 ]
 ```
 
@@ -55,7 +53,7 @@ return function(mod)
   local framework = assert(mod.find("expanded_species"),
     "This mod requires Expanded Species")
   local api = assert(framework.exports.getApi(1))
-  api = assert(api.requireCapabilities({ "safeDefaults", "customDex" }))
+  api = assert(api.requireCapabilities({ "safeDefaults", "runtimeWildBattles" }))
   local speciesId = "MY_PACK_AURORIX"
 
   -- Register owned audio before the species that references it.

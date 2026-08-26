@@ -1,11 +1,12 @@
-local VERSION = "0.6.6"
+local VERSION = "0.7.0"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
 local SAVE_GUARDIAN_FORMAT = 1
 local CHECKPOINT_PROFILE_FORMAT = 1
 local PARTY_SIZE = 6
-local NUM_BOXES = 14
+local GEN1_NUM_BOXES = 12
+local GEN2_NUM_BOXES = 14
 local MONS_PER_BOX = 20
 local GRASS_TIMES = { "MORN", "DAY", "NITE" }
 local FISHING_RODS = {
@@ -67,6 +68,43 @@ local CAPABILITIES = {
     safeDefaults = true,
     saveGuardian = true,
     vanillaTrainerPatches = true,
+}
+
+-- These API 1 names remain available on every edition, but their behavior is
+-- only implemented by the shared Gen 2 runtime.  supports()/capabilities()
+-- mask them on Red, Blue, and Yellow so a provider can branch before it calls
+-- an unavailable helper.
+local GEN2_ONLY_CAPABILITIES = {
+    cosmeticForms = true,
+    customDex = true,
+    customPalettes = true,
+    extendedBugContest = true,
+    extendedFishing = true,
+    extendedSwarms = true,
+    gifts = true,
+    goldFormScreens = true,
+    goldNestScreen = true,
+    localizedSpecies = true,
+    scriptedStationary = true,
+    scriptedTrades = true,
+    scriptedTrainers = true,
+    vanillaTrainerPatches = true,
+}
+
+local GEN1_EVOLUTION_METHODS = {
+    LEVEL = "LEVEL",
+    ITEM = "ITEM",
+    TRADE = "TRADE",
+    EVOLVE_LEVEL = "LEVEL",
+    EVOLVE_ITEM = "ITEM",
+    EVOLVE_TRADE = "TRADE",
+}
+
+local GEN1_GROWTH_RATES = {
+    GROWTH_MEDIUM_FAST = "MEDIUM_FAST",
+    GROWTH_MEDIUM_SLOW = "MEDIUM_SLOW",
+    GROWTH_FAST = "FAST",
+    GROWTH_SLOW = "SLOW",
 }
 
 local function isInteger(value)
@@ -377,19 +415,91 @@ local function issueText(items)
     return table.concat(lines, "; ")
 end
 
-local function applySpeciesDefaults(definition)
+local function applySpeciesDefaults(definition, generation)
     local record = copy(definition)
     if record.types == nil then record.types = { "NORMAL" } end
     if record.catchRate == nil then record.catchRate = 45 end
     if record.baseExp == nil then record.baseExp = 100 end
     if record.growthRate == nil then record.growthRate = "GROWTH_MEDIUM_FAST" end
-    if record.levelMoves == nil then record.levelMoves = {} end
     if record.evolutions == nil then record.evolutions = {} end
-    if record.picSize == nil then record.picSize = 7 end
+
+    if generation == 1 then
+        record.growthRate = GEN1_GROWTH_RATES[record.growthRate]
+            or record.growthRate
+        local stats = type(record.baseStats) == "table" and record.baseStats or nil
+        if stats then
+            local special = stats.special
+            if special == nil then
+                special = math.max(tonumber(stats.specialAttack) or 0,
+                    tonumber(stats.specialDefense) or 0)
+            end
+            record.baseStats = {
+                hp = stats.hp,
+                attack = stats.attack,
+                defense = stats.defense,
+                speed = stats.speed,
+                special = special,
+            }
+        end
+
+        local levelMoves = type(record.levelMoves) == "table"
+            and record.levelMoves or {}
+        if record.level1Moves == nil then
+            record.level1Moves = {}
+            for _, row in ipairs(levelMoves) do
+                if type(row) == "table" and tonumber(row.level) == 1
+                    and type(row.move) == "string" then
+                    record.level1Moves[#record.level1Moves + 1] = row.move
+                end
+            end
+        end
+        if record.learnset == nil then record.learnset = copy(levelMoves) end
+        if record.frontSize == nil then record.frontSize = record.picSize or 7 end
+
+        local evolutions = {}
+        for _, row in ipairs(record.evolutions or {}) do
+            if type(row) == "table" then
+                local method = GEN1_EVOLUTION_METHODS[row.method]
+                local species = row.species or row.into
+                if method and type(species) == "string" then
+                    evolutions[#evolutions + 1] = {
+                        method = method,
+                        species = species,
+                        level = row.level,
+                        item = row.item,
+                    }
+                end
+            end
+        end
+        record.evolutions = evolutions
+
+        if type(record.dexEntry) == "table" then
+            local source = record.dexEntry
+            local packedHeight = tonumber(source.height)
+            local dex = {
+                kind = source.kind or "CUSTOM",
+                heightM = source.heightM,
+                weightKg = source.weightKg,
+                text = source.text or "A custom species.",
+            }
+            dex.heightFt = math.max(0, math.floor(tonumber(source.heightFt)
+                or (packedHeight and packedHeight / 100) or 0))
+            dex.heightIn = math.max(0, math.min(11,
+                math.floor(tonumber(source.heightIn)
+                    or (packedHeight and packedHeight % 100) or 0)))
+            dex.weight = tonumber(source.weight)
+                or ((tonumber(source.weightLbs) or 0) * 10)
+            record.dexEntry = dex
+        end
+    else
+        if record.levelMoves == nil then record.levelMoves = {} end
+        if record.picSize == nil then record.picSize = 7 end
+    end
     return record
 end
 
-local function speciesPreflight(providerMod, definition)
+local function speciesPreflight(providerMod, definition, generation)
+    generation = generation == 1 and 1 or 2
     local errors, warnings = {}, {}
     if type(providerMod) ~= "table" or type(providerMod.id) ~= "string"
         or providerMod.id == "" then
@@ -400,7 +510,7 @@ local function speciesPreflight(providerMod, definition)
         return { ok = false, errors = errors, warnings = warnings }
     end
 
-    local record = applySpeciesDefaults(definition)
+    local record = applySpeciesDefaults(definition, generation)
     if type(record.id) ~= "string" or record.id == "" then
         addIssue(errors, "id", "must be a non-empty globally namespaced string")
     end
@@ -417,11 +527,14 @@ local function speciesPreflight(providerMod, definition)
         end
     end
 
-    local statNames = {
-        "hp", "attack", "defense", "speed", "specialAttack", "specialDefense",
-    }
+    local statNames = generation == 1
+        and { "hp", "attack", "defense", "speed", "special" }
+        or { "hp", "attack", "defense", "speed",
+            "specialAttack", "specialDefense" }
     if type(record.baseStats) ~= "table" then
-        addIssue(errors, "baseStats", "must contain all six Gen 2 stats")
+        addIssue(errors, "baseStats", generation == 1
+            and "must contain all five Gen 1 stats"
+            or "must contain all six Gen 2 stats")
     else
         for _, name in ipairs(statNames) do
             local value = record.baseStats[name]
@@ -441,12 +554,20 @@ local function speciesPreflight(providerMod, definition)
     end
     boundedInteger("catchRate", record.catchRate, 0, 255)
     boundedInteger("baseExp", record.baseExp, 0, 255)
-    boundedInteger("picSize", record.picSize, 1, 7)
+    local sizeField = generation == 1 and "frontSize" or "picSize"
+    boundedInteger(sizeField, record[sizeField], 1, 7)
 
     if type(record.growthRate) ~= "string" or record.growthRate == "" then
-        addIssue(errors, "growthRate", "must be a Gen 2 growth-rate id")
+        addIssue(errors, "growthRate", "must be a growth-rate id")
     end
-    if type(record.levelMoves) ~= "table" then
+    if generation == 1 then
+        if type(record.level1Moves) ~= "table" then
+            addIssue(errors, "level1Moves", "must be a list")
+        end
+        if type(record.learnset) ~= "table" then
+            addIssue(errors, "learnset", "must be a list")
+        end
+    elseif type(record.levelMoves) ~= "table" then
         addIssue(errors, "levelMoves", "must be a list")
     end
     if type(record.evolutions) ~= "table" then
@@ -509,10 +630,28 @@ local function speciesPreflight(providerMod, definition)
         addIssue(warnings, "cry", "no cry is assigned")
     end
     if record.dexEntry == nil then
-        addIssue(warnings, "dexEntry", "the framework's generic custom entry will be used")
+        addIssue(warnings, "dexEntry", generation == 1
+            and "no Gen 1 dex entry is assigned"
+            or "the framework's generic custom entry will be used")
     end
     if record.trueColor and record.palette ~= nil then
         addIssue(warnings, "palette", "is bypassed while trueColor is enabled")
+    end
+    if generation == 1 then
+        for index, evolution in ipairs(definition.evolutions or {}) do
+            if type(evolution) == "table"
+                and not GEN1_EVOLUTION_METHODS[evolution.method] then
+                addIssue(warnings, "evolutions[" .. index .. "]",
+                    "uses a Gen 2-only method and is skipped on Gen 1")
+            end
+        end
+        if record.forms ~= nil then
+            addIssue(warnings, "forms", "cosmetic forms are ignored on Gen 1")
+        end
+        if type(record.palette) == "table" then
+            addIssue(warnings, "palette",
+                "Gen 2 inline palettes are ignored on Gen 1")
+        end
     end
 
     return {
@@ -524,7 +663,7 @@ local function speciesPreflight(providerMod, definition)
     }
 end
 
-local function normalizeForRegistration(providerMod, definition)
+local function normalizeForRegistration(providerMod, definition, generation)
     assert(type(providerMod) == "table", "Expanded Species: provider mod is required")
     assert(type(providerMod.id) == "string" and providerMod.id ~= "",
         "Expanded Species: provider mod must have an id")
@@ -532,7 +671,8 @@ local function normalizeForRegistration(providerMod, definition)
     assert(type(definition.id) == "string" and definition.id ~= "",
         "Expanded Species: species definition must have a string id")
 
-    local record = applySpeciesDefaults(definition)
+    generation = generation == 1 and 1 or 2
+    local record = applySpeciesDefaults(definition, generation)
     local marker = type(record.expandedSpecies) == "table" and record.expandedSpecies or {}
     local desiredDex = record.dex
     if not isInteger(desiredDex) or desiredDex < FIRST_CUSTOM_DEX then
@@ -559,8 +699,37 @@ local function normalizeForRegistration(providerMod, definition)
     marker.sourceDexEntry = copy(marker.sourceDexEntry or marker.dexEntry)
     record.expandedSpecies = marker
 
-    -- The Gen 2 schema validates the optional cartridge index as one byte. Leave it
-    -- unset during content validation; game.ready assigns the runtime-only index.
+    if generation == 1 then
+        -- Gen 1 has one-byte cartridge indices and no Gen 2 breeding, held
+        -- item, happiness, form, or split-special record fields.  Keep the
+        -- provider metadata in expandedSpecies, but write only Gen 1's
+        -- supported species shape into the shared registry.
+        record.levelMoves = nil
+        record.picSize = nil
+        record.growthRateId = nil
+        record.gender = nil
+        record.happiness = nil
+        record.heldItem = nil
+        record.items = nil
+        record.eggGroups = nil
+        record.eggGroupsRaw = nil
+        record.eggMoves = nil
+        record.eggSteps = nil
+        record.genderRatio = nil
+        record.forms = nil
+        record.defaultForm = nil
+        record.paletteFallback = nil
+        if type(record.palette) ~= "string" then record.palette = nil end
+        if type(record.icon) == "table" then
+            record.icon = {
+                image = record.icon.image,
+                frames = record.icon.frames,
+            }
+        end
+    end
+
+    -- Both schemas validate the optional cartridge index as one byte. Leave it
+    -- unset during content validation; game.ready owns virtual allocation.
     record.index = nil
     record.dex = desiredDex or FIRST_CUSTOM_DEX
     return record
@@ -568,6 +737,7 @@ end
 
 return function(mod)
     local state = {
+        activeGame = nil,
         species = {},
         order = {},
         nextIndex = FIRST_CUSTOM_DEX,
@@ -600,6 +770,38 @@ return function(mod)
             error = nil,
         },
     }
+
+    -- GameVersion is the authority before a save exists; once one is live,
+    -- its edition tag keeps diagnostics and test harnesses explicit.  Engine
+    -- source: src/core/GameVersion.lua:126-164.
+    local function activeGeneration()
+        local game = state.activeGame or mod.game
+        local version = game and game.save and game.save.version
+        local ok, GameVersion = pcall(require, "src.core.GameVersion")
+        if ok and type(GameVersion) == "table"
+            and type(GameVersion.generation) == "function" then
+            return GameVersion.generation(version)
+        end
+        -- The 0.6.x harness predates multi-generation setup and has no engine
+        -- module loader.  Preserve its Gen 2 default when no edition exists.
+        return 2
+    end
+
+    local function isGen2()
+        return activeGeneration() == 2
+    end
+
+    local function boxCount()
+        return isGen2() and GEN2_NUM_BOXES or GEN1_NUM_BOXES
+    end
+
+    local function availableCapabilities()
+        local result = copy(CAPABILITIES)
+        if not isGen2() then
+            for name in pairs(GEN2_ONLY_CAPABILITIES) do result[name] = false end
+        end
+        return result
+    end
 
     local function providerKey(providerMod, kind, id)
         return table.concat({ providerMod.id, kind, id }, "|")
@@ -770,7 +972,7 @@ return function(mod)
         for index, mon in ipairs(save.party or {}) do
             fn(mon, { kind = "party", index = index })
         end
-        for boxIndex = 1, NUM_BOXES do
+        for boxIndex = 1, boxCount() do
             local box = save.boxes and save.boxes[boxIndex]
             if type(box) == "table" then
                 for index, mon in ipairs(box) do
@@ -853,9 +1055,9 @@ return function(mod)
         for index = #save.party, 1, -1 do
             local mon = save.party[index]
             if missingDefinition(mon, pokemon) then
-                local mail = partyMail(save)[index]
+                local mail = isGen2() and partyMail(save)[index] or nil
                 table.remove(save.party, index)
-                removePartyMail(save, index)
+                if isGen2() then removePartyMail(save, index) end
                 quarantineEntry(guardian, mon,
                     { kind = "party", index = index }, mail)
                 moved = moved + 1
@@ -863,7 +1065,7 @@ return function(mod)
         end
 
         save.boxes = type(save.boxes) == "table" and save.boxes or {}
-        for boxIndex = 1, NUM_BOXES do
+        for boxIndex = 1, boxCount() do
             local box = save.boxes[boxIndex]
             if type(box) == "table" then
                 for index = #box, 1, -1 do
@@ -950,7 +1152,7 @@ return function(mod)
         elseif source.kind == "box" then
             save.boxes = type(save.boxes) == "table" and save.boxes or {}
             local boxIndex = math.floor(tonumber(source.box) or 0)
-            if boxIndex < 1 or boxIndex > NUM_BOXES then return false end
+            if boxIndex < 1 or boxIndex > boxCount() then return false end
             local box = save.boxes[boxIndex]
             if type(box) ~= "table" then
                 box = {}
@@ -1008,7 +1210,7 @@ return function(mod)
             return true
         end
         save.boxes = type(save.boxes) == "table" and save.boxes or {}
-        for boxIndex = 1, NUM_BOXES do
+        for boxIndex = 1, boxCount() do
             local box = save.boxes[boxIndex]
             if type(box) ~= "table" then
                 box = {}
@@ -1078,7 +1280,7 @@ return function(mod)
     end
 
     local function liveGame()
-        return mod.game
+        return state.activeGame or mod.game
     end
 
     local function liveWorld()
@@ -1608,6 +1810,44 @@ return function(mod)
         opts = opts or {}
         local game = liveGame()
         local data = game and game.data
+        if not isGen2() then
+            local Pokemon = require("src.pokemon.Pokemon")
+            local mon = Pokemon.new(data, speciesId, level)
+            local dvs = opts.dvs or shinyDvs(opts.shiny)
+            if dvs then
+                local Stats = require("src.pokemon.Stats")
+                mon.dvs = copy(dvs)
+                if mon.dvs.hp == nil then
+                    mon.dvs.hp = ((mon.dvs.attack or 0) % 2) * 8
+                        + ((mon.dvs.defense or 0) % 2) * 4
+                        + ((mon.dvs.speed or 0) % 2) * 2
+                        + ((mon.dvs.special or 0) % 2)
+                end
+                mon.stats = Stats.calc(data.pokemon[speciesId], level,
+                    mon.dvs, mon.statExp)
+                mon.hp = mon.stats.hp
+            end
+            if type(opts.nickname) == "string" and opts.nickname ~= "" then
+                mon.nickname = opts.nickname
+            end
+            if type(opts.moves) == "table" then
+                mon.moves = {}
+                for _, move in ipairs(opts.moves) do
+                    local id = type(move) == "table" and move.id or move
+                    local definition = data.moves and data.moves[id]
+                    if type(id) == "string" and definition then
+                        mon.moves[#mon.moves + 1] = {
+                            id = id,
+                            pp = type(move) == "table" and move.pp
+                                or definition.pp,
+                            ppUps = type(move) == "table" and move.ppUps or nil,
+                        }
+                    end
+                end
+                while #mon.moves > 4 do table.remove(mon.moves, 1) end
+            end
+            return mon
+        end
         local Mon = requireGen2("src.battle.gen2.Mon")
         local mon = Mon.new(data, speciesId, level, {
             dvs = opts.dvs or shinyDvs(opts.shiny),
@@ -1693,6 +1933,7 @@ return function(mod)
 
     local function applyTrainerPatches(next_, trainerClass, trainerMember, party)
         local result = next_(trainerClass, trainerMember, party)
+        if not isGen2() then return result end
         if type(result) ~= "table" then result = party end
         if type(result) ~= "table" then return result end
 
@@ -1782,23 +2023,24 @@ return function(mod)
 
     local function markDex(save, speciesId, caught)
         if not save then return end
-        save.pokedex = save.pokedex or { seen = {}, caught = {} }
+        local caughtKey = isGen2() and "caught" or "owned"
+        save.pokedex = save.pokedex or { seen = {}, [caughtKey] = {} }
         save.pokedex.seen = save.pokedex.seen or {}
-        save.pokedex.caught = save.pokedex.caught or {}
+        save.pokedex[caughtKey] = save.pokedex[caughtKey] or {}
         save.pokedex.seen[speciesId] = true
-        if caught then save.pokedex.caught[speciesId] = true end
+        if caught then save.pokedex[caughtKey][speciesId] = true end
     end
 
     local function depositGift(save, mon, allowBox)
         save.party = save.party or {}
-        local Party = requireGen2("src.pokemon.Party")
+        local Party = require("src.pokemon.Party")
         if Party.add(save.party, mon) then
             return { ok = true, destination = "party", mon = mon }
         end
         if allowBox == false then
             return { ok = false, error = "party is full", mon = mon }
         end
-        local Boxes = requireGen2("src.pokemon.Boxes")
+        local Boxes = require("src.pokemon.Boxes")
         local box = Boxes.deposit(save, mon)
         if not box then
             return { ok = false, error = "party and all boxes are full", mon = mon }
@@ -1814,25 +2056,31 @@ return function(mod)
             "Expanded Species: gift level must be an integer from 1 to 100")
         local game = liveGame()
         local save = game and game.save
-        if not save then return { ok = false, error = "no active Gen 2 save" } end
+        if not save then return { ok = false, error = "no active save" } end
         local mon = buildMon(speciesId, level, opts)
         if not mon then
             return { ok = false, error = "unknown species: " .. speciesId }
         end
-        local Mon = requireGen2("src.battle.gen2.Mon")
-        Mon.stampOT(save, mon)
-        if type(Mon.hasCaughtData) == "function"
-            and type(Mon.setGiftCaughtData) == "function"
-            and Mon.hasCaughtData(save.version) then
-            local gender = save.player and save.player.gender or "unknown"
-            Mon.setGiftCaughtData(mon, gender)
+        if isGen2() then
+            local Mon = requireGen2("src.battle.gen2.Mon")
+            Mon.stampOT(save, mon)
+            if type(Mon.hasCaughtData) == "function"
+                and type(Mon.setGiftCaughtData) == "function"
+                and Mon.hasCaughtData(save.version) then
+                local gender = save.player and save.player.gender or "unknown"
+                Mon.setGiftCaughtData(mon, gender)
+            end
+        else
+            require("src.battle.BattleState").stampOT(save, mon)
         end
         local result = depositGift(save, mon, opts.allowBox)
         if not result.ok then return result end
         markDex(save, speciesId, true)
-        local Unown = requireGen2("src.core.gen2.Unown")
-        if Unown and type(Unown.registerCatch) == "function" then
-            Unown.registerCatch(save, mon)
+        if isGen2() then
+            local Unown = requireGen2("src.core.gen2.Unown")
+            if Unown and type(Unown.registerCatch) == "function" then
+                Unown.registerCatch(save, mon)
+            end
         end
         return result
     end
@@ -1845,7 +2093,13 @@ return function(mod)
             "Expanded Species: wild level must be an integer from 1 to 100")
         local game = liveGame()
         local world = liveWorld()
-        if not (game and world) then return nil, "no active Gen 2 overworld" end
+        if not (game and world) then return nil, "no active overworld" end
+        if not isGen2() then
+            -- Gen 1's supported public seam builds the mon and owns the full
+            -- transition/blackout/evolution path.  Engine source:
+            -- src/world/WorldAPI.lua:542-584.
+            return world:startWildBattle(speciesId, level)
+        end
         local party = game.save and game.save.party
         local Party = requireGen2("src.pokemon.Party")
         if not Party.firstHealthy(party or {}) then return nil, "no healthy party" end
@@ -1856,6 +2110,10 @@ return function(mod)
     end
 
     local function encounterPool(kind, mapId, time)
+        if not isGen2() then
+            local pools = state.encounters[kind]
+            return pools and pools[mapId]
+        end
         if kind == "grass" or kind == "swarmGrass" then
             local maps = state.encounters[kind][mapId]
             return maps and maps[time]
@@ -1889,8 +2147,14 @@ return function(mod)
         assert(isInteger(weight),
             "Expanded Species: encounter weight must be a positive integer")
 
-        local current = registry:get(kind)
-        local mapRow = current and current[mapId]
+        local generation = activeGeneration()
+        if generation == 1 then
+            assert(kind == "grass" or kind == "water",
+                "Expanded Species: this encounter type is Gen 2 only")
+        end
+        local current = registry:get(generation == 1 and mapId or kind)
+        local mapRow = generation == 1 and current and current[kind]
+            or current and current[mapId]
         assert(type(mapRow) == "table",
             ("Expanded Species: %s has no %s encounter table")
                 :format(mapId, kind))
@@ -1923,7 +2187,10 @@ return function(mod)
         local function commit(placementRow)
             state.encounterKeys[placementRow.key] = true
             local pool
-            if kind == "grass" or kind == "swarmGrass" then
+            if generation == 1 then
+                state.encounters[kind][mapId] = state.encounters[kind][mapId] or {}
+                pool = state.encounters[kind][mapId]
+            elseif kind == "grass" or kind == "swarmGrass" then
                 state.encounters[kind][mapId] = state.encounters[kind][mapId] or {}
                 local maps = state.encounters[kind][mapId]
                 maps[placementRow.time] = maps[placementRow.time] or {}
@@ -1941,7 +2208,19 @@ return function(mod)
             end)
         end
 
-        if kind == "grass" or kind == "swarmGrass" then
+        if generation == 1 then
+            assert(type(mapRow.slots) == "table",
+                ("Expanded Species: %s has no %s encounter slots")
+                    :format(mapId, kind))
+            prepare(nil, #mapRow.slots)
+            registry:patch(mapId, {
+                [kind] = {
+                    slots = {
+                        __append = { { level = level, species = speciesId } },
+                    },
+                },
+            })
+        elseif kind == "grass" or kind == "swarmGrass" then
             local requestedTimes = placement.times
             if placement.time ~= nil then
                 assert(requestedTimes == nil,
@@ -2368,11 +2647,28 @@ return function(mod)
         return changed
     end
 
+    local function installGen1DexText(data, pokemon, customIds)
+        data.text = type(data.text) == "table" and data.text or {}
+        for _, speciesId in ipairs(customIds) do
+            local definition = pokemon[speciesId]
+            local marker = markerFor(definition) or {}
+            if type(definition.dexEntry) == "table" then
+                local source = marker.dexEntry and marker.dexEntry.text
+                    or definition.dexEntry.text
+                if type(source) == "string" and source ~= "" then
+                    local key = "EXPANDED_SPECIES_DEX_" .. speciesId
+                    data.text[key] = source:gsub("<NEXT>", "\f")
+                    definition.dexEntry.text = key
+                end
+            end
+        end
+    end
+
     local function reconcile(game)
         local data = game and game.data
         local pokemon = data and data.pokemon
         if type(pokemon) ~= "table" then
-            mod.log:warn("Expanded Species could not find the Gen 2 Pokemon registry")
+            mod.log:warn("Expanded Species could not find the Pokemon registry")
             return 0
         end
 
@@ -2382,7 +2678,10 @@ return function(mod)
         for _, speciesId in ipairs(customIds) do
             local definition = pokemon[speciesId]
             definition.dex = nextIndex
-            definition.index = nextIndex
+            -- Gen 1's cartridge index is explicitly one byte.  Its runtime
+            -- paths use the string species id, so only Gen 2 receives the
+            -- historical virtual index field above #255.
+            definition.index = isGen2() and nextIndex or nil
             local marker = markerFor(definition)
             if marker then
                 marker.virtualIndex = nextIndex
@@ -2392,10 +2691,14 @@ return function(mod)
         end
 
         localizeSpecies(pokemon, customIds)
-        rebuildPokedex(data, pokemon, customIds)
-        installVisuals(data, pokemon, customIds)
-        installTrainerVisuals(data)
-        installTrades(game)
+        if isGen2() then
+            rebuildPokedex(data, pokemon, customIds)
+            installVisuals(data, pokemon, customIds)
+            installTrainerVisuals(data)
+            installTrades(game)
+        else
+            installGen1DexText(data, pokemon, customIds)
+        end
 
         state.species = assigned
         state.order = copy(customIds)
@@ -2435,11 +2738,17 @@ return function(mod)
     }
 
     function mod.exports.capabilities()
-        return copy(CAPABILITIES)
+        return availableCapabilities()
     end
 
     function mod.exports.supports(name)
-        return CAPABILITIES[name] == true
+        return availableCapabilities()[name] == true
+    end
+
+    local function requireCapability(name)
+        assert(mod.exports.supports(name),
+            "Expanded Species: " .. tostring(name)
+                .. " is unavailable on this game generation")
     end
 
     function mod.exports.supportsApi(version)
@@ -2466,7 +2775,7 @@ return function(mod)
     end
 
     function mod.exports.preflight(providerMod, definition)
-        return speciesPreflight(providerMod, definition)
+        return speciesPreflight(providerMod, definition, activeGeneration())
     end
 
     function mod.exports.register(providerMod, definition)
@@ -2476,10 +2785,12 @@ return function(mod)
         assert(type(registry) == "table" and type(registry.register) == "function",
             "Expanded Species: provider mod has no Pokemon content registry")
 
-        local report = speciesPreflight(providerMod, definition)
+        local generation = activeGeneration()
+        local report = speciesPreflight(providerMod, definition, generation)
         assert(report.ok, "Expanded Species: invalid species: "
             .. issueText(report.errors))
-        local record = normalizeForRegistration(providerMod, report.definition)
+        local record = normalizeForRegistration(providerMod, report.definition,
+            generation)
         registry:register(record.id, record)
         return record
     end
@@ -2489,7 +2800,8 @@ return function(mod)
             "Expanded Species: registerAll expects a list of definitions")
         local reports, seen = {}, {}
         for index, definition in ipairs(definitions) do
-            local report = speciesPreflight(providerMod, definition)
+            local report = speciesPreflight(providerMod, definition,
+                activeGeneration())
             if type(definition) == "table" and type(definition.id) == "string" then
                 if seen[definition.id] then
                     addIssue(report.errors, "id", "duplicates item "
@@ -2526,18 +2838,22 @@ return function(mod)
     end
 
     function mod.exports.addSwarmGrassEncounter(providerMod, placement)
+        requireCapability("extendedSwarms")
         return addEncounterPlacement(providerMod, placement, "swarmGrass")
     end
 
     function mod.exports.addSwarmWaterEncounter(providerMod, placement)
+        requireCapability("extendedSwarms")
         return addEncounterPlacement(providerMod, placement, "swarmWater")
     end
 
     function mod.exports.addFishingEncounter(providerMod, placement)
+        requireCapability("extendedFishing")
         return addFishingPlacement(providerMod, placement)
     end
 
     function mod.exports.addBugContestEncounter(providerMod, placement)
+        requireCapability("extendedBugContest")
         return addBugContestPlacement(providerMod, placement)
     end
 
@@ -2550,6 +2866,7 @@ return function(mod)
     end
 
     function mod.exports.registerGift(providerMod, spec)
+        requireCapability("gifts")
         assert(type(spec) == "table", "Expanded Species: gift definition is required")
         assert(type(spec.species) == "string" and spec.species ~= "",
             "Expanded Species: gift species id is required")
@@ -2561,6 +2878,7 @@ return function(mod)
     end
 
     function mod.exports.registerStationaryEncounter(providerMod, spec)
+        requireCapability("scriptedStationary")
         assert(type(spec) == "table",
             "Expanded Species: stationary definition is required")
         assert(type(spec.species) == "string" and spec.species ~= "",
@@ -2573,6 +2891,7 @@ return function(mod)
     end
 
     function mod.exports.registerTrainerEncounter(providerMod, spec)
+        requireCapability("scriptedTrainers")
         assert(type(spec) == "table",
             "Expanded Species: trainer definition is required")
         assert(type(spec.id) == "string" and spec.id ~= "",
@@ -2640,6 +2959,7 @@ return function(mod)
     end
 
     function mod.exports.patchVanillaTrainer(providerMod, spec)
+        requireCapability("vanillaTrainerPatches")
         assert(type(providerMod) == "table" and type(providerMod.id) == "string"
             and providerMod.id ~= "",
             "Expanded Species: trainer patch provider mod is required")
@@ -2812,6 +3132,7 @@ return function(mod)
     end
 
     function mod.exports.registerTrade(providerMod, spec)
+        requireCapability("scriptedTrades")
         assert(type(spec) == "table", "Expanded Species: trade definition is required")
         assert(type(spec.id) == "string" and spec.id ~= "",
             "Expanded Species: trade helper id is required")
@@ -2916,6 +3237,7 @@ return function(mod)
     end
 
     function mod.exports.forms(speciesId)
+        if not mod.exports.supports("cosmeticForms") then return {} end
         local game = liveGame()
         local definition = game and game.data and game.data.pokemon
             and game.data.pokemon[speciesId]
@@ -2924,6 +3246,7 @@ return function(mod)
     end
 
     function mod.exports.getForm(mon)
+        if not mod.exports.supports("cosmeticForms") then return nil end
         if type(mon) ~= "table" then return nil end
         if mon.expandedForm ~= nil then return mon.expandedForm end
         local game = liveGame()
@@ -2934,10 +3257,12 @@ return function(mod)
     end
 
     function mod.exports.setForm(mon, formId)
+        requireCapability("cosmeticForms")
         return setMonForm(mon, formId)
     end
 
     function mod.exports.formInfo(mon)
+        if not mod.exports.supports("cosmeticForms") then return nil end
         if type(mon) ~= "table" then return nil end
         local formId = mod.exports.getForm(mon)
         local form = formDefinition(mon.species, formId)
@@ -2999,7 +3324,7 @@ return function(mod)
         local data = game and game.data
         local definition = data and data.pokemon and data.pokemon[speciesId]
         if not definition then
-            addIssue(errors, "species", "is not present in the merged Gen 2 registry")
+            addIssue(errors, "species", "is not present in the merged Pokemon registry")
             return { ok = false, id = speciesId, errors = errors, warnings = warnings }
         end
         if isCustomSpecies(definition) and not state.species[speciesId] then
@@ -3011,24 +3336,29 @@ return function(mod)
         if type(definition.spriteBack) ~= "string" then
             addIssue(errors, "spriteBack", "is missing")
         end
-        local dex = data.gen2Pokedex and data.gen2Pokedex.entries
-        if isCustomSpecies(definition) and not (dex and dex[speciesId]) then
-            addIssue(errors, "pokedex", "custom entry is missing")
+        if mod.exports.supports("customDex") then
+            local dex = data.gen2Pokedex and data.gen2Pokedex.entries
+            if isCustomSpecies(definition) and not (dex and dex[speciesId]) then
+                addIssue(errors, "pokedex", "custom entry is missing")
+            end
         end
-        local icons = data.gen2Icons and data.gen2Icons.species
-        if not (icons and icons[speciesId]) then
-            addIssue(warnings, "icon", "no party/box icon is installed")
-        end
-        local palettes = data.gen2Palettes and data.gen2Palettes.pokemon
-        if not definition.trueColor and not (palettes and palettes[speciesId]) then
-            addIssue(warnings, "palette", "no normal/shiny palette is installed")
+        if isGen2() then
+            local icons = data.gen2Icons and data.gen2Icons.species
+            if not (icons and icons[speciesId]) then
+                addIssue(warnings, "icon", "no party/box icon is installed")
+            end
+            local palettes = data.gen2Palettes and data.gen2Palettes.pokemon
+            if not definition.trueColor and not (palettes and palettes[speciesId]) then
+                addIssue(warnings, "palette", "no normal/shiny palette is installed")
+            end
         end
         local cries = data.audio and data.audio.cries
         if not (cries and cries[speciesId]) then
             addIssue(warnings, "cry", "no cry is registered under the species id")
         end
         local marker = markerFor(definition)
-        if marker and type(marker.forms) == "table" then
+        if mod.exports.supports("cosmeticForms")
+            and marker and type(marker.forms) == "table" then
             if marker.defaultForm and not marker.forms[marker.defaultForm] then
                 addIssue(errors, "defaultForm", "does not name a declared form")
             end
@@ -3040,9 +3370,11 @@ return function(mod)
             end
         end
         for index, evolution in ipairs(definition.evolutions or {}) do
-            if not (data.pokemon and data.pokemon[evolution.into]) then
-                addIssue(errors, "evolutions[" .. index .. "].into",
-                    "unknown species " .. tostring(evolution.into))
+            local field = isGen2() and "into" or "species"
+            local target = evolution[field]
+            if not (data.pokemon and data.pokemon[target]) then
+                addIssue(errors, "evolutions[" .. index .. "]." .. field,
+                    "unknown species " .. tostring(target))
             end
         end
         return {
@@ -3178,6 +3510,7 @@ return function(mod)
 
 
     local function selectedForm(context)
+        if not isGen2() then return nil end
         local speciesId = context and context.species
         return formSelection(context and context.data, speciesId,
             context and context.mon)
@@ -3209,8 +3542,11 @@ return function(mod)
         local rolled = next_(tables, context)
         if type(context) ~= "table" then return rolled end
 
+        local live = liveGame()
         local pokemon = context.data and context.data.pokemon
+            or (live and live.data and live.data.pokemon)
         if context.kind == "contest" then
+            if not mod.exports.supports("extendedBugContest") then return rolled end
             local pool = state.encounters.bugContest
             if not pool or #pool == 0 then return rolled end
             return customContestEncounter(pool, context.rng, pokemon) or rolled
@@ -3236,7 +3572,8 @@ return function(mod)
             pool[#pool + 1] = placement
         end
         local baseTables = context.data and context.data.gen2Encounters
-        local activeSwarm = type(baseTables) == "table" and tables ~= baseTables
+        local activeSwarm = isGen2()
+            and type(baseTables) == "table" and tables ~= baseTables
             and type(tables[kind]) == "table"
             and type(baseTables[kind]) == "table"
             and tables[kind][mapId] ~= baseTables[kind][mapId]
@@ -3254,6 +3591,7 @@ return function(mod)
     mod.hooks:wrap("encounter.fishing", function(next_, rod, mapId, candidates,
             context)
         local rolled = next_(rod, mapId, candidates, context)
+        if not mod.exports.supports("extendedFishing") then return rolled end
         local byRod = state.encounters.fishing[mapId]
         local pool = byRod and byRod[FISHING_RODS[rod] or rod]
         if not pool or #pool == 0 then return rolled end
@@ -3289,20 +3627,27 @@ return function(mod)
         game = game or liveGame()
         local world = game and game.world
         if not (world and type(world.showText) == "function") then return false end
-        local lines = {}
+        local pages = {}
         if notice.quarantined > 0 then
-            lines[#lines + 1] = tostring(notice.quarantined) .. " "
-                .. translated("CUSTOM POKEMON MOVED TO SAFE STORAGE.")
+            pages[#pages + 1] = tostring(notice.quarantined) .. " "
+                .. translated("CUSTOM POKEMON")
+            pages[#pages + 1] = translated("MOVED TO SAFE") .. "\n"
+                .. translated("STORAGE.")
         end
         if notice.restored > 0 then
-            lines[#lines + 1] = tostring(notice.restored) .. " "
-                .. translated("CUSTOM POKEMON RESTORED.")
+            pages[#pages + 1] = tostring(notice.restored) .. " "
+                .. translated("CUSTOM POKEMON")
+            pages[#pages + 1] = translated("RESTORED.")
         end
         if notice.remaining > 0 then
-            lines[#lines + 1] = translated(
-                "RE-ENABLE THEIR SPECIES PACKS TO RESTORE THEM.")
+            pages[#pages + 1] = translated("RE-ENABLE THEIR") .. "\n"
+                .. translated("SPECIES PACKS TO")
+            pages[#pages + 1] = translated("RESTORE THEM.")
         end
-        world:showText(table.concat(lines, "<NEXT>"))
+        -- TextBox.paginate only treats \f as an A-button page break;
+        -- <NEXT> is a ROM charmap token and renders literally here.
+        -- Engine source: src/render/TextBox.lua:184-220.
+        world:showText(table.concat(pages, "\f"))
         return true
     end
 
@@ -3351,9 +3696,12 @@ return function(mod)
 
     mod.events:on("game.ready", function(context)
         local game = context and context.game or mod.game
+        state.activeGame = game
         reconcile(game)
-        installFormBridge()
-        installNestBridge()
+        if isGen2() then
+            installFormBridge()
+            installNestBridge()
+        end
     end)
 
     mod.log:info("Expanded Species %s loaded", VERSION)
