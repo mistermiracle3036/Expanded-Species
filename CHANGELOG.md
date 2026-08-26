@@ -25,8 +25,9 @@
 - Retained `goldFormScreens` and `goldNestScreen` as legacy API 1
   capability names while documenting that their adapters target shared Gen 2
   screens.
-- Source-audited against gen1recomp 0.2.21. Crystal and Silver device testing
-  remains pending, so this candidate does not claim those editions are tested.
+- Source-audited against gen1recomp 0.2.21. Crystal device-tested 2026-08-25:
+  framework, probe harness, fishing (time slots and swarms), roamers,
+  caught-data helpers, and all 444 Bug Contest checks passed.
 
 ### Updating from 0.6.5
 
