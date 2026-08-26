@@ -7,12 +7,12 @@ well.
 
 ## Does it replace MissingNo. or a vanilla Pokemon?
 
-No. Gold's original 251 keep their records and numeric identities. Custom
+No. Gen 2's original 251 keep their records and numeric identities. Custom
 species are allocated from 252 upward.
 
 ## How can it go beyond 255?
 
-Gold's optional registry `index` is capped because it represents a Game Boy
+Gen 2's optional registry `index` is capped because it represents a Game Boy
 byte. gen1recomp's live party, boxes, battles, and save data identify Pokemon by
 string ID. Expanded Species waits until content validation is complete, then
 adds deterministic runtime-only indices for systems that need ordering.
@@ -22,15 +22,17 @@ adds deterministic runtime-only indices for systems that need ordering.
 No. The original `.sav` format only has room for the original byte-sized
 species representation. Engine-native gen1recomp saves are the supported path.
 
-## Can I use this in Red?
+## Which games can I use this in?
 
-No. Expanded Species is deliberately Gold-only and uses Gold's six-stat species,
-Pokedex, icon, palette, breeding, and save structures.
+Expanded Species targets Pokemon Gold, Silver, and Crystal through the shared
+Gen 2 schema and runtime. It does not support Red, Blue, or Yellow. Version
+0.6.6 has been source-audited for all three; Crystal and Silver device
+verification remains pending.
 
 ## What happens if a species pack is removed?
 
 Expanded Species moves Pokemon whose definitions are missing into private
-framework save data before Gold opens the world. This internal **MISSING**
+framework save data before the game opens the world. This internal **MISSING**
 storage is not shown in the PC and cannot be interacted with. Re-enable or
 reinstall the pack and reload the save; complete records are restored to their
 original locations when possible, with an ordinary box used as a safe fallback.
@@ -59,19 +61,22 @@ pool. Practical memory and load time are the only slot-count boundary.
 
 Vanilla as a whole has weight 100. If all custom entries on a route total 20,
 custom species collectively appear in 20/120 of triggered encounters. The
-original Gold slot ratios stay unchanged inside the remaining 100/120.
+original Gen 2 slot ratios stay unchanged inside the remaining 100/120.
 
 ## Can custom species appear while fishing, during swarms, or in the Bug Contest?
 
 Yes. Expanded Species has owned helpers for fishing rods, swarm-only
-grass/water rows, and the global Bug-Catching Contest pool. Headbutt, Rock
-Smash, and additional roaming slots are not exposed because Gold 0.1.94 does
-not provide safe registry-based runtime seams for them.
+grass/water rows, and the global Bug-Catching Contest pool. Fishing additions
+may optionally select Crystal's day or night sub-slot with `time`/`times`;
+registrations without it remain all-day. Headbutt, Rock Smash, and additional
+roaming slots are not exposed because gen1recomp 0.1.94 does not provide safe
+registry-based runtime seams for them. Crystal's Suicune is scripted rather
+than roaming, but that does not affect this framework.
 
 ## Why did the Pokédex AREA page show no nest marker or route name?
 
-On older Gold builds the AREA renderer found grass and swimming nests
-correctly but read the Gen 1 landmark field instead of Gold's `gen2Landmarks`
+On older Gen 2 builds the AREA renderer found grass and swimming nests
+correctly but read the Gen 1 landmark field instead of Gen 2's `gen2Landmarks`
 registry, so neither the marker nor the route name appeared.
 
 **Current gen1recomp releases fix this in the engine**, and no bridge is
@@ -84,7 +89,7 @@ this mod.
 ## How do I give a custom Pokemon its own colors?
 
 Add `palette = { normal = {...}, shiny = {...} }` to its Expanded Species
-definition. Each form supplies two RGB triples; Gold adds white and black.
+definition. Each form supplies two RGB triples; Gen 2 adds white and black.
 Use `paletteFallback = "TANGELA"` to borrow a vanilla palette, or omit both to
 use Ditto. A `trueColor = true` species uses the PNG's colors instead.
 
@@ -94,7 +99,7 @@ Yes. Expanded Species stores a named form on each individual Pokemon and
 routes it through battles, Summary, PC preview, evolution, NPC trades, Hall of
 Fame, egg hatching, Photo Studio, and party/trade icons. The Pokedex displays
 the species' `defaultForm` because it has no individual Pokemon record.
-True-color form art bypasses palette remapping, but Gold still cannot choose a
+True-color form art bypasses palette remapping, but Gen 2 still cannot choose a
 separate palette table or cry per individual.
 
 ## How can a pack report compatibility or protect checkpoints?
@@ -102,7 +107,7 @@ separate palette table or cry per individual.
 Run `formatCompatibilityReport(mod)` after `game.ready` for a copyable summary
 of species, placements, trainer patches, engine versions, and hidden records.
 Checkpoint tools can store `checkpointProfile()` and compare it before restore.
-Expanded Species reruns Save Guardian after a successful restore, but Gold
+Expanded Species reruns Save Guardian after a successful restore, but gen1recomp
 0.1.94 has no pre-restore event, so automatic preflight requires an upstream
 engine addition.
 
@@ -117,10 +122,10 @@ folder and packaged mods.
 ## Can trainers, gifts, stationary encounters, and trades use custom species?
 
 Yes. Expanded Species has provider-owned helpers for all four. They pass
-registry string IDs directly to Gold's runtime systems, including IDs above
+registry string IDs directly to Gen 2's runtime systems, including IDs above
 #255, and keep
 one-time completion in the calling pack's `mod.save` namespace. Do not put a
-virtual numeric index into Gold's original one-byte `givepoke`, `loadwildmon`,
+virtual numeric index into Gen 2's original one-byte `givepoke`, `loadwildmon`,
 `loadtrainer`, or trade operands.
 
 ## Can I add a custom Pokemon to an existing vanilla trainer?

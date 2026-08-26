@@ -1,3 +1,49 @@
+## [0.6.6] — 2026-08-24
+
+### Added
+
+- Migrated the framework manifest from Gold-only to `gen2`, allowing Gold,
+  Silver, and Crystal to load the same API 1 framework. Crystal is now the
+  primary target.
+- Added optional `time`/`times` filtering to
+  `addFishingEncounter`. Crystal's `MORN`/`DAY` values share
+  its native day sub-slot, and `NITE`/`DARK` share its night
+  sub-slot. Existing all-day registrations are unchanged.
+- Added Crystal gift caught-data stamping through the engine's
+  `Mon.hasCaughtData` and `Mon.setGiftCaughtData` capabilities.
+- Compatibility reports now identify the active Gen 2 edition instead of
+  always reporting Gold.
+
+### Audited
+
+- Confirmed species, trainers, scripts, sprites, palettes, saves, and the
+  Bug-Catching Contest use shared Gen 2 runtime modules.
+- Confirmed the framework does not allocate item slots, use numeric map IDs, or
+  modify the fixed roamer save structures. Crystal's four repurposed item IDs,
+  20 additional maps, absent `ECRUTEAK_TIN_TOWER_BACK_ENTRANCE`, and
+  Raikou/Entei-only roamer table therefore do not collide with framework state.
+- Retained `goldFormScreens` and `goldNestScreen` as legacy API 1
+  capability names while documenting that their adapters target shared Gen 2
+  screens.
+- Source-audited against gen1recomp 0.2.21. Crystal device-tested 2026-08-25:
+  framework, probe harness, fishing (time slots and swarms), roamers,
+  caught-data helpers, and all 444 Bug Contest checks passed.
+
+### Updating from 0.6.5
+
+No provider API break is required. Existing species and encounter packs continue
+to load unchanged. Packs that require Crystal day/night fishing should depend
+on `expanded_species@>=0.6.6 <2.0.0`. Authors should read Crystal caught
+metadata by field presence, not by comparing the edition string.
+
+### Upstream follow-up
+
+- gen1recomp 0.2.21 defines Crystal caught-data helpers and preserves those
+  fields through evolution and breeding, but ordinary wild/Contest capture
+  completion does not currently call the stamping helper. Expanded Species
+  does not patch that battle-screen path; it remains an engine issue to report
+  after release testing.
+
 ## [0.6.5] — 2026-08-16
 
 Documentation only. No behaviour changes; the mod code is identical to 0.6.4.

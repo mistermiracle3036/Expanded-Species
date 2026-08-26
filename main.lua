@@ -1,4 +1,4 @@
-local VERSION = "0.6.5"
+local VERSION = "0.6.6"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
@@ -15,6 +15,15 @@ local FISHING_RODS = {
     old = "OLD_ROD",
     good = "GOOD_ROD",
     super = "SUPER_ROD",
+}
+local FISHING_TIMES = {
+    MORN = "DAY",
+    DAY = "DAY",
+    NITE = "NITE",
+    DARK = "NITE",
+    day = "DAY",
+    night = "NITE",
+    nite = "NITE",
 }
 local SHINY_DVS = { attack = 14, defense = 10, speed = 10, special = 10 }
 local TRAINER_TYPES = {
@@ -100,7 +109,7 @@ end
 local function encounterRandom(random, total)
     local value
     if type(random) == "function" then
-        -- Gold supplies love.math.random through the encounter hook context;
+        -- Gen 2 supplies love.math.random through the encounter hook context;
         -- it returns 1..total while the encounter tables use a zero-based roll.
         value = (tonumber(random(total)) or 1) - 1
     elseif love and love.math and love.math.random then
@@ -412,7 +421,7 @@ local function speciesPreflight(providerMod, definition)
         "hp", "attack", "defense", "speed", "specialAttack", "specialDefense",
     }
     if type(record.baseStats) ~= "table" then
-        addIssue(errors, "baseStats", "must contain all six Gold stats")
+        addIssue(errors, "baseStats", "must contain all six Gen 2 stats")
     else
         for _, name in ipairs(statNames) do
             local value = record.baseStats[name]
@@ -435,7 +444,7 @@ local function speciesPreflight(providerMod, definition)
     boundedInteger("picSize", record.picSize, 1, 7)
 
     if type(record.growthRate) ~= "string" or record.growthRate == "" then
-        addIssue(errors, "growthRate", "must be a Gold growth-rate id")
+        addIssue(errors, "growthRate", "must be a Gen 2 growth-rate id")
     end
     if type(record.levelMoves) ~= "table" then
         addIssue(errors, "levelMoves", "must be a list")
@@ -550,7 +559,7 @@ local function normalizeForRegistration(providerMod, definition)
     marker.sourceDexEntry = copy(marker.sourceDexEntry or marker.dexEntry)
     record.expandedSpecies = marker
 
-    -- The Gold schema validates the optional cartridge index as one byte. Leave it
+    -- The Gen 2 schema validates the optional cartridge index as one byte. Leave it
     -- unset during content validation; game.ready assigns the runtime-only index.
     record.index = nil
     record.dex = desiredDex or FIRST_CUSTOM_DEX
@@ -700,7 +709,7 @@ return function(mod)
         return result
     end
 
-    -- Missing species cannot stay in Gold's ordinary party/box/Day-Care
+    -- Missing species cannot stay in Gen 2's ordinary party/box/Day-Care
     -- tables: several engine screens index data.pokemon[mon.species]
     -- directly. Keep the complete records in Expanded Species' own save
     -- bucket until the defining pack comes back. This is deliberately NOT a
@@ -1061,9 +1070,9 @@ return function(mod)
         }
     end
 
-    local function requireGold(path)
+    local function requireGen2(path)
         local ok, result = pcall(require, path)
-        assert(ok, "Expanded Species: Gold runtime module unavailable: "
+        assert(ok, "Expanded Species: Gen 2 runtime module unavailable: "
             .. path .. " (" .. tostring(result) .. ")")
         return result
     end
@@ -1458,7 +1467,7 @@ return function(mod)
                         function() return original(screen) end)
                 end
             end)
-        -- Breeding.hatch rebuilds the hatchling through Gold's canonical Mon
+        -- Breeding.hatch rebuilds the hatchling through Gen 2's canonical Mon
         -- builder. Arbitrary engine-external fields are intentionally absent
         -- from that new record, so carry Expanded Species' one owned
         -- per-individual field across before EggHatchAnim receives the mon.
@@ -1524,7 +1533,7 @@ return function(mod)
         state.formBridge.installed = failures == 0
             and next(state.formBridge.adapters) ~= nil
         if failures == 0 then
-            mod.log:info("Expanded Species installed Gold form routing for PC, Summary, Pokedex, evolution, trade, Hall of Fame, hatching and photos")
+            mod.log:info("Expanded Species installed Gen 2 form routing for PC, Summary, Pokedex, evolution, trade, Hall of Fame, hatching and photos")
         else
             mod.log:warn("Expanded Species form routing installed with %d unavailable adapters",
                 failures)
@@ -1532,9 +1541,9 @@ return function(mod)
         return failures == 0
     end
 
-    -- Gold 0.1.94's Pokedex AREA page correctly finds nests through
+    -- gen1recomp 0.1.94's Gen 2 Pokedex AREA page correctly finds nests through
     -- data.gen2Encounters, but its draw pass resolves the returned landmark
-    -- indices through data.landmarks. Game2 owns the Gold records under
+    -- indices through data.landmarks. Game2 owns the Gen 2 records under
     -- data.gen2Landmarks, so the lookup silently produces neither a marker nor
     -- a route name. Supply the correct table only for that draw call. A future
     -- engine that provides a native data.landmarks table bypasses this bridge,
@@ -1545,7 +1554,7 @@ return function(mod)
 
         local ok, PokedexMenu = pcall(require, "src.ui.gen2.PokedexMenu")
         if not ok or type(PokedexMenu) ~= "table" then
-            state.nestBridge.error = "could not load Gold PokedexMenu: "
+            state.nestBridge.error = "could not load Gen 2 PokedexMenu: "
                 .. tostring(PokedexMenu)
             mod.log:warn("Expanded Species nest bridge: %s",
                 state.nestBridge.error)
@@ -1558,7 +1567,7 @@ return function(mod)
         if originals.drawArea == nil then originals.drawArea = PokedexMenu.drawArea end
         local original = originals.drawArea
         if type(original) ~= "function" then
-            state.nestBridge.error = "Gold PokedexMenu.drawArea is unavailable"
+            state.nestBridge.error = "Gen 2 PokedexMenu.drawArea is unavailable"
             mod.log:warn("Expanded Species nest bridge: %s",
                 state.nestBridge.error)
             return false
@@ -1591,7 +1600,7 @@ return function(mod)
         end
 
         state.nestBridge.installed = true
-        mod.log:info("Expanded Species installed Gold Pokedex nest landmark routing")
+        mod.log:info("Expanded Species installed Gen 2 Pokedex nest landmark routing")
         return true
     end
 
@@ -1599,7 +1608,7 @@ return function(mod)
         opts = opts or {}
         local game = liveGame()
         local data = game and game.data
-        local Mon = requireGold("src.battle.gen2.Mon")
+        local Mon = requireGen2("src.battle.gen2.Mon")
         local mon = Mon.new(data, speciesId, level, {
             dvs = opts.dvs or shinyDvs(opts.shiny),
             nickname = opts.nickname,
@@ -1666,7 +1675,7 @@ return function(mod)
     local function buildTrainerPartyMember(change)
         local game = liveGame()
         local data = game and game.data
-        local Trainers = requireGold("src.world.gen2.Trainers")
+        local Trainers = requireGen2("src.world.gen2.Trainers")
         local party = Trainers.party(data, {
             roster = {
                 {
@@ -1782,14 +1791,14 @@ return function(mod)
 
     local function depositGift(save, mon, allowBox)
         save.party = save.party or {}
-        local Party = requireGold("src.pokemon.Party")
+        local Party = requireGen2("src.pokemon.Party")
         if Party.add(save.party, mon) then
             return { ok = true, destination = "party", mon = mon }
         end
         if allowBox == false then
             return { ok = false, error = "party is full", mon = mon }
         end
-        local Boxes = requireGold("src.pokemon.Boxes")
+        local Boxes = requireGen2("src.pokemon.Boxes")
         local box = Boxes.deposit(save, mon)
         if not box then
             return { ok = false, error = "party and all boxes are full", mon = mon }
@@ -1805,17 +1814,23 @@ return function(mod)
             "Expanded Species: gift level must be an integer from 1 to 100")
         local game = liveGame()
         local save = game and game.save
-        if not save then return { ok = false, error = "no active Gold save" } end
+        if not save then return { ok = false, error = "no active Gen 2 save" } end
         local mon = buildMon(speciesId, level, opts)
         if not mon then
             return { ok = false, error = "unknown species: " .. speciesId }
         end
-        local Mon = requireGold("src.battle.gen2.Mon")
+        local Mon = requireGen2("src.battle.gen2.Mon")
         Mon.stampOT(save, mon)
+        if type(Mon.hasCaughtData) == "function"
+            and type(Mon.setGiftCaughtData) == "function"
+            and Mon.hasCaughtData(save.version) then
+            local gender = save.player and save.player.gender or "unknown"
+            Mon.setGiftCaughtData(mon, gender)
+        end
         local result = depositGift(save, mon, opts.allowBox)
         if not result.ok then return result end
         markDex(save, speciesId, true)
-        local Unown = requireGold("src.core.gen2.Unown")
+        local Unown = requireGen2("src.core.gen2.Unown")
         if Unown and type(Unown.registerCatch) == "function" then
             Unown.registerCatch(save, mon)
         end
@@ -1830,9 +1845,9 @@ return function(mod)
             "Expanded Species: wild level must be an integer from 1 to 100")
         local game = liveGame()
         local world = liveWorld()
-        if not (game and world) then return nil, "no active Gold overworld" end
+        if not (game and world) then return nil, "no active Gen 2 overworld" end
         local party = game.save and game.save.party
-        local Party = requireGold("src.pokemon.Party")
+        local Party = requireGen2("src.pokemon.Party")
         if not Party.firstHealthy(party or {}) then return nil, "no healthy party" end
         local mon = buildMon(speciesId, level, opts)
         if not mon then return nil, "unknown species: " .. speciesId end
@@ -2003,10 +2018,32 @@ return function(mod)
         assert(isInteger(weight),
             "Expanded Species: fishing weight must be a positive integer")
         local rods = normalizedRods(placement)
+        local requestedTimes = placement.times
+        if requestedTimes == nil and placement.time ~= nil then
+            requestedTimes = { placement.time }
+        end
+        local times
+        if requestedTimes ~= nil then
+            assert(type(requestedTimes) == "table" and #requestedTimes > 0,
+                "Expanded Species: fishing times must be a non-empty array")
+            times = {}
+            local seenTimes = {}
+            for _, rawTime in ipairs(requestedTimes) do
+                local time = FISHING_TIMES[rawTime]
+                assert(time ~= nil,
+                    "Expanded Species: fishing time must be DAY or NITE")
+                assert(not seenTimes[time],
+                    "Expanded Species: duplicate fishing encounter time " .. time)
+                seenTimes[time] = true
+                times[#times + 1] = time
+            end
+            table.sort(times)
+        end
         local sequence = (state.providerSequences[providerMod.id] or 0) + 1
         for _, rod in ipairs(rods) do
             local key = table.concat({ providerMod.id, "fishing", mapId, rod,
-                speciesId, tostring(level) }, "|")
+                speciesId, tostring(level), times and table.concat(times, "+")
+                    or "ANY" }, "|")
             assert(not state.encounterKeys[key],
                 "Expanded Species: duplicate fishing placement " .. key)
             state.encounterKeys[key] = true
@@ -2017,6 +2054,7 @@ return function(mod)
                 key = key, provider = providerMod.id, sequence = sequence,
                 map = mapId, rod = rod, species = speciesId,
                 level = level, weight = weight, baseSlots = 0,
+                times = copy(times),
             }
             table.sort(byRod[rod], function(left, right)
                 if left.provider ~= right.provider then
@@ -2027,7 +2065,7 @@ return function(mod)
         end
         state.providerSequences[providerMod.id] = sequence
         return { map = mapId, species = speciesId, level = level,
-            weight = weight, rods = copy(rods) }
+            weight = weight, rods = copy(rods), times = copy(times) }
     end
 
     local function addBugContestPlacement(providerMod, placement)
@@ -2151,7 +2189,7 @@ return function(mod)
         showHelperText(ctx, spec.introText)
         local vm = ctx and ctx.vm
         assert(vm and type(vm.resume) == "function",
-            "Expanded Species: stationary helper needs Gold's script VM")
+            "Expanded Species: stationary helper needs Gen 2's script VM")
         local ok, err = startWildBattle(spec.species, spec.level, spec,
             function(outcome) vm:resume(outcome) end)
         assert(ok, err or "stationary battle failed")
@@ -2187,7 +2225,7 @@ return function(mod)
     local function runTrade(providerMod, spec)
         local game = liveGame()
         local save = game and game.save
-        assert(save, "Expanded Species: trade helper needs an active Gold save")
+        assert(save, "Expanded Species: trade helper needs an active Gen 2 save")
         local key = providerKey(providerMod, "trade", spec.id)
         if state.tradeRuntimeIds[key] == nil and installTrades then
             installTrades(game)
@@ -2334,7 +2372,7 @@ return function(mod)
         local data = game and game.data
         local pokemon = data and data.pokemon
         if type(pokemon) ~= "table" then
-            mod.log:warn("Expanded Species could not find Gold's Pokemon registry")
+            mod.log:warn("Expanded Species could not find the Gen 2 Pokemon registry")
             return 0
         end
 
@@ -2556,7 +2594,7 @@ return function(mod)
         end
         local trainerType = spec.trainerType or "TRAINERTYPE_NORMAL"
         assert(TRAINER_TYPES[trainerType],
-            "Expanded Species: unknown Gold trainerType " .. tostring(trainerType))
+            "Expanded Species: unknown Gen 2 trainerType " .. tostring(trainerType))
         local trainers = providerMod and providerMod.content
             and providerMod.content.trainers
         local commands = providerMod and providerMod.content
@@ -2961,7 +2999,7 @@ return function(mod)
         local data = game and game.data
         local definition = data and data.pokemon and data.pokemon[speciesId]
         if not definition then
-            addIssue(errors, "species", "is not present in the merged Gold registry")
+            addIssue(errors, "species", "is not present in the merged Gen 2 registry")
             return { ok = false, id = speciesId, errors = errors, warnings = warnings }
         end
         if isCustomSpecies(definition) and not state.species[speciesId] then
@@ -2997,7 +3035,7 @@ return function(mod)
             for formId, form in pairs(marker.forms) do
                 if type(form) == "table" and form.palette ~= nil then
                     addIssue(warnings, "forms." .. tostring(formId) .. ".palette",
-                        "is not applied per mon by Gold 0.1.94; use true-color form art")
+                        "is not applied per mon by gen1recomp 0.1.94; use true-color form art")
                 end
             end
         end
@@ -3027,7 +3065,8 @@ return function(mod)
         local report = {
             ok = true,
             framework = { id = mod.id, version = VERSION, api = API_VERSION },
-            game = "gold",
+            game = (liveGame() and liveGame().save
+                and liveGame().save.version) or "gen2",
             provider = wanted,
             species = {},
             encounters = {},
@@ -3113,9 +3152,9 @@ return function(mod)
             ("Species: %d; encounters: %d; trainer patches: %d")
                 :format(#report.species, #report.encounters, #report.trainerPatches),
             ("Hidden missing Pokemon: %d"):format(#report.missing),
-            ("Gold form screen bridge: %s")
+            ("Gen 2 form screen bridge: %s")
                 :format(report.formScreens.installed and "installed" or "unavailable"),
-            ("Gold Pokedex nest bridge: %s")
+            ("Gen 2 Pokedex nest bridge: %s")
                 :format(report.nestScreen.installed and "installed" or "unavailable"),
             report.ok and "STATUS: COMPATIBLE" or "STATUS: NEEDS ATTENTION",
         }
@@ -3218,6 +3257,19 @@ return function(mod)
         local byRod = state.encounters.fishing[mapId]
         local pool = byRod and byRod[FISHING_RODS[rod] or rod]
         if not pool or #pool == 0 then return rolled end
+        local daytime = context and (context.tod or context.daytime)
+        daytime = FISHING_TIMES[daytime]
+        if daytime then
+            local active = {}
+            for _, placement in ipairs(pool) do
+                if placement.times == nil
+                    or arrayContains(placement.times, daytime) then
+                    active[#active + 1] = placement
+                end
+            end
+            pool = active
+        end
+        if #pool == 0 then return rolled end
         local pokemon = context and context.data and context.data.pokemon
         return customEncounter(pool, context and context.rng, pokemon) or rolled
     end)

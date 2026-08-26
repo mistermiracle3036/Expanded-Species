@@ -78,8 +78,8 @@ expect(framework.exports.supports("vanillaTrainerPatches"),
 expect(framework.exports.supports("extendedFishing"), "fishing capability")
 expect(framework.exports.supports("extendedBugContest"), "Bug Contest capability")
 expect(framework.exports.supports("cosmeticForms"), "forms capability")
-expect(framework.exports.supports("goldFormScreens"), "Gold form screens capability")
-expect(framework.exports.supports("goldNestScreen"), "Gold nest screen capability")
+expect(framework.exports.supports("goldFormScreens"), "Gen 2 form screens capability")
+expect(framework.exports.supports("goldNestScreen"), "Gen 2 nest screen capability")
 expect(framework.exports.supports("checkpointProfiles"), "checkpoint capability")
 expect(framework.exports.supports("compatibilityReports"), "report capability")
 expect(type(readyCallback) == "function", "game.ready callback was not registered")
@@ -343,6 +343,14 @@ framework.exports.addFishingEncounter(provider, {
     level = 16,
     weight = 30,
 })
+framework.exports.addFishingEncounter(provider, {
+    map = "ROUTE_30",
+    rod = "GOOD_ROD",
+    species = "TEST_PACK_ZETA",
+    level = 17,
+    weight = 40,
+    time = "NITE",
+})
 framework.exports.addBugContestEncounter(provider, {
     species = "TEST_PACK_ZETA",
     minLevel = 12,
@@ -429,7 +437,7 @@ expectEqual(tradeRow[2], "trade", "trade command kind")
 expectEqual(trainerClass.trainers[1].party[2].species, "TEST_PACK_BETA",
     "trainer party keeps custom string ids")
 expectEqual(trainerClass.trainers[1].party[1].form, nil,
-    "cosmetic form metadata stays outside Gold's trainer schema")
+    "cosmetic form metadata stays outside Gen 2's trainer schema")
 expectEqual(registeredCommands["test_species_pack:expanded_species"] ~= nil, true,
     "one provider-owned script command")
 expectEqual(trainerPatch.changes[2].position, 3,
@@ -528,7 +536,9 @@ local contestPick = encounterRollHook(vanillaRoll, nil, {
     mapId = "NATIONAL_PARK",
     terrain = "grass",
     kind = "contest",
-    data = { pokemon = { TEST_PACK_ZETA = {} } },
+    data = { pokemon = {
+        TEST_PACK_EPSILON = {}, TEST_PACK_ZETA = {},
+    } },
     rng = function(total)
         if total == 125 then return 101 end
         expectEqual(total, 3, "Bug Contest custom level span")
@@ -544,6 +554,7 @@ local fishingPick = fishingHook(function()
     return { species = "MAGIKARP", level = 10 }
 end, "GOOD_ROD", "ROUTE_30", {}, {
     data = { pokemon = { TEST_PACK_EPSILON = {} } },
+    tod = "DAY",
     rng = function(total)
         expectEqual(total, 130, "fishing weighted total")
         return 101
@@ -552,6 +563,24 @@ end, "GOOD_ROD", "ROUTE_30", {}, {
 expectEqual(fishingNextCalls, 1, "fishing helper preserves wrapped roll")
 expectEqual(fishingPick.species, "TEST_PACK_EPSILON", "custom fishing selection")
 expectEqual(fishingPick.level, 16, "custom fishing level")
+
+local nightFishingPick = fishingHook(function()
+    fishingNextCalls = fishingNextCalls + 1
+    return { species = "MAGIKARP", level = 10 }
+end, "GOOD_ROD", "ROUTE_30", {}, {
+    data = { pokemon = {
+        TEST_PACK_EPSILON = {}, TEST_PACK_ZETA = {},
+    } },
+    daytime = "NITE",
+    rng = function(total)
+        expectEqual(total, 170, "all-day and night fishing weighted total")
+        return 131
+    end,
+})
+expectEqual(nightFishingPick.species, "TEST_PACK_ZETA",
+    "night fishing uses only the NITE custom sub-pool")
+expectEqual(nightFishingPick.level, 17, "night fishing custom level")
+expectEqual(fishingNextCalls, 2, "both fishing rolls preserve the wrapped result")
 
 expectEqual(nextCalls, 7, "encounter hook must preserve the wrapped roll")
 
@@ -597,7 +626,7 @@ if arg and arg[1] then
         "register",
         2
     )
-    expect(ok, "normalized species must satisfy Gold's real schema: "
+    expect(ok, "normalized species must satisfy Gen 2's real schema: "
         .. tostring(schemaError))
     local trainerOk, trainerError = Schemas.check(
         Schemas.REGISTRIES.trainers,
@@ -607,7 +636,7 @@ if arg and arg[1] then
         "register",
         2
     )
-    expect(trainerOk, "custom trainer must satisfy Gold's real schema: "
+    expect(trainerOk, "custom trainer must satisfy Gen 2's real schema: "
         .. tostring(trainerError))
 end
 
@@ -733,12 +762,13 @@ local shownText
 local game = {
     data = data,
     save = {
+        version = "crystal",
         party = {
             { species = "DITTO", level = 20, hp = 40, stats = { hp = 40 } },
         },
         boxes = {},
         currentBox = 1,
-        player = { name = "TESTER", id = 1234 },
+        player = { name = "TESTER", id = 1234, gender = "female" },
         pokedex = { seen = {}, caught = {} },
         tradeFlags = {},
     },
@@ -778,7 +808,7 @@ if arg and arg[1] then
     PokedexMenu.drawArea = function(screen)
         nestProbeCalls = nestProbeCalls + 1
         expectEqual(screen.data.landmarks, screen.data.gen2Landmarks,
-            "nest renderer receives Gold's landmark registry")
+            "nest renderer receives Gen 2's landmark registry")
         expectEqual(screen.landmarkByIndex, nil,
             "stale landmark cache is cleared before the corrected draw")
         if screen.failNestProbe then error("nest probe failure") end
@@ -877,19 +907,19 @@ if arg and arg[1] then
     local frontPath = "mods/test_species_pack/assets/alpha_winter_front.png"
     local backPath = "mods/test_species_pack/assets/alpha_winter_back.png"
     local status = framework.exports.formScreenStatus()
-    expect(status.installed, "Gold form screen bridge installs")
+    expect(status.installed, "Gen 2 form screen bridge installs")
     for _, adapter in ipairs({
         "pc.sprite", "summary.sprite", "pokedex.sprite", "evolution.sprite",
         "trade.records", "trade.receivedForm", "trade.sprite",
         "hof.records", "hof.sprite", "eggHatch.sprite", "photoStudio.sprite",
     }) do
-        expect(status.adapters[adapter], "Gold form adapter " .. adapter .. ": "
+        expect(status.adapters[adapter], "Gen 2 form adapter " .. adapter .. ": "
             .. tostring(status.errors[adapter]))
     end
-    expect(next(status.errors) == nil, "Gold form bridge has no missing adapters")
+    expect(next(status.errors) == nil, "Gen 2 form bridge has no missing adapters")
 
     local nestStatus = framework.exports.nestScreenStatus()
-    expect(nestStatus.installed, "Gold Pokedex nest bridge installs: "
+    expect(nestStatus.installed, "Gen 2 Pokedex nest bridge installs: "
         .. tostring(nestStatus.error))
     local PokedexMenu = require("src.ui.gen2.PokedexMenu")
     local nestScreen = {
@@ -897,7 +927,7 @@ if arg and arg[1] then
         landmarkByIndex = { stale = true },
     }
     expectEqual(PokedexMenu.drawArea(nestScreen), "nest-drawn",
-        "Gold Pokedex nest draw completes through corrected landmarks")
+        "Gen 2 Pokedex nest draw completes through corrected landmarks")
     expectEqual(nestProbeCalls, 1, "corrected nest renderer is called once")
     expectEqual(data.landmarks, nil,
         "temporary landmark compatibility alias is removed after drawing")
@@ -932,7 +962,7 @@ if arg and arg[1] then
 
     local summary = screen("src.ui.gen2.SummaryMenu", { mon = formMon })
     summary:picFor(formMon)
-    expectCached(summary, frontPath, "Gold Summary resolves individual form art")
+    expectCached(summary, frontPath, "Gen 2 Summary resolves individual form art")
 
     local pokedex = screen("src.ui.gen2.PokedexMenu", { save = game.save })
     pokedex:picFor("TEST_PACK_ALPHA")
@@ -1021,7 +1051,9 @@ expect(not incompatible.ok and #incompatible.missing == 1,
 local compatibility = framework.exports.compatibilityReport(provider)
 expect(compatibility.ok, "provider compatibility report should pass")
 expectEqual(#compatibility.species, 8, "compatibility report filters by provider")
-expectEqual(#compatibility.encounters, 9,
+expectEqual(compatibility.game, "crystal",
+    "compatibility report identifies the active Gen 2 edition")
+expectEqual(#compatibility.encounters, 10,
     "compatibility report includes every provider encounter placement")
 local formattedCompatibility = framework.exports.formatCompatibilityReport(provider)
 expect(formattedCompatibility:find("STATUS: COMPATIBLE", 1, true),
@@ -1100,7 +1132,7 @@ if arg and arg[1] then
     guardedSave = assert(SaveSerializer.decode(encoded))
     game.save = guardedSave
     expectEqual(framework.exports.missingCount(), 5,
-        "hidden records survive Gold's real save serializer")
+        "hidden records survive Gen 2's real save serializer")
 end
 
 for _, speciesId in ipairs(guardedIds) do
@@ -1204,12 +1236,13 @@ expectEqual(checkpointSave.party[1].customField, "checkpoint-record",
     "checkpoint-protected record restores when content returns")
 
 game.save = {
+    version = "crystal",
     party = {
         { species = "DITTO", level = 20, hp = 40, stats = { hp = 40 } },
     },
     boxes = {},
     currentBox = 1,
-    player = { name = "TESTER", id = 1234 },
+    player = { name = "TESTER", id = 1234, gender = "female" },
     pokedex = { seen = {}, caught = {} },
     tradeFlags = {},
 }
@@ -1233,6 +1266,16 @@ package.loaded["src.battle.gen2.Mon"] = {
     stampOT = function(save, mon)
         mon.ot = save.player.name
         mon.otId = save.player.id
+        return mon
+    end,
+    hasCaughtData = function(version)
+        return version == "crystal"
+    end,
+    setGiftCaughtData = function(mon, gender)
+        mon.caughtTime = 0
+        mon.caughtLevel = 0
+        mon.caughtLocation = 126
+        mon.caughtByGender = gender == "female" and "girl" or "boy"
         return mon
     end,
 }
@@ -1319,7 +1362,7 @@ expectEqual(composedTrainerParty[5].species, "TEST_PACK_DELTA",
 expectEqual(composedTrainerParty[6].species, "TEST_PACK_ZETA",
     "trainer patch can append without knowing the final position")
 expectEqual(composedTrainerParty[3].dvs.attack, 9,
-    "custom trainer member uses Gold's fixed trainer DVs")
+    "custom trainer member uses Gen 2's fixed trainer DVs")
 local secondTrainerMove = composedTrainerParty[3].moves[2]
 expectEqual(type(secondTrainerMove) == "table" and secondTrainerMove.id
         or secondTrainerMove,
@@ -1332,7 +1375,7 @@ local customTrainerParty = {
 local decoratedCustomParty = trainerPartyHook(function(_, _, party) return party end,
     trainerClass.id, trainerClass.trainers[1].id, customTrainerParty)
 expectEqual(decoratedCustomParty[1].expandedForm, "winter",
-    "custom trainer helper applies its cosmetic form after Gold builds the party")
+    "custom trainer helper applies its cosmetic form after Gen 2 builds the party")
 expect(decoratedCustomParty ~= customTrainerParty,
     "custom trainer form decoration returns a composed party array")
 
@@ -1359,6 +1402,12 @@ helper({ vm = vm }, "gift", "alpha_gift")
 expectEqual(#game.save.party, 2, "gift adds custom species to party")
 expectEqual(game.save.party[2].species, "TEST_PACK_ALPHA", "gift species")
 expectEqual(game.save.party[2].expandedForm, "winter", "gift cosmetic form")
+expectEqual(game.save.party[2].caughtLevel, 0,
+    "Crystal gift receives native gift caught-level metadata")
+expectEqual(game.save.party[2].caughtLocation, 126,
+    "Crystal gift receives native gift landmark metadata")
+expectEqual(game.save.party[2].caughtByGender, "girl",
+    "Crystal gift records the player gender")
 expect(game.save.pokedex.caught.TEST_PACK_ALPHA, "gift marks caught dex state")
 helper({ vm = vm }, "gift", "alpha_gift")
 expectEqual(#game.save.party, 2, "one-time gift cannot duplicate")
@@ -1389,7 +1438,7 @@ local trainerCo = coroutine.create(function()
 end)
 local trainerOk, trainerRequest = coroutine.resume(trainerCo)
 expect(trainerOk, "trainer command should yield")
-expectEqual(trainerRequest.kind, "battle", "trainer uses Gold VM battle request")
+expectEqual(trainerRequest.kind, "battle", "trainer uses Gen 2 VM battle request")
 expectEqual(trainerRequest.trainer.roster[2].species, "TEST_PACK_BETA",
     "trainer roster keeps custom species id")
 expect(coroutine.resume(trainerCo, "win"), "trainer command resumes")
@@ -1401,7 +1450,7 @@ local tradeCo = coroutine.create(function()
 end)
 local tradeOk, tradeRequest = coroutine.resume(tradeCo)
 expect(tradeOk, "trade command should yield")
-expectEqual(tradeRequest.kind, "trade", "trade uses Gold VM trade request")
+expectEqual(tradeRequest.kind, "trade", "trade uses Gen 2 VM trade request")
 expectEqual(tradeRequest.trade, 6, "custom trade follows six vanilla rows")
 game.save.tradeFlags[6] = true
 expect(coroutine.resume(tradeCo), "trade command resumes")
@@ -1417,6 +1466,6 @@ expectEqual(#game.world.eventTables.trades, 7,
     "hot reload must not duplicate custom trade rows")
 
 print(string.format(
-    "PASS: allocated %d custom Gold species at IDs 252-260; trainer inserts cover first, middle and final positions",
+    "PASS: allocated %d custom Gen 2 species at IDs 252-260; trainer inserts cover first, middle and final positions",
     #allocatedIds
 ))
