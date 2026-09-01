@@ -1,0 +1,26 @@
+# This repo is LF throughout. The portfolio is LF by measurement -- 33 of 39
+# repos were pure LF -- and the strays came from tools, not decisions:
+# PowerShell's `Set-Content -Encoding utf8` writes CRLF *and* a UTF-8 BOM,
+# and Python's default text mode writes CRLF on Windows. Bash heredocs write
+# LF. So the same file gets different endings depending on who edited it, and
+# the next edit mismatches.
+#
+# The damage is not cosmetic. A stray CRLF write turns a one-line change into
+# a whole-file diff that buries the real edit and collides with any other
+# session holding that file, and a BOM can leave a manifest modkit rejects
+# outright ("MK001 manifest.json unparseable: Unexpected UTF-8 BOM"). Both
+# have happened more than once.
+#
+# `text=auto eol=lf` makes git store and check out LF regardless, so a stray
+# CRLF write normalises on commit instead of becoming a phantom diff.
+#
+# It does NOT strip a BOM -- git treats that as content. So when editing from
+# PowerShell, prefer the editor tools, or write with
+# [System.IO.File]::WriteAllText($p, $t, (New-Object System.Text.UTF8Encoding($false)))
+# which is BOM-less by construction.
+* text=auto eol=lf
+
+# Binary assets: never touched by eol rules.
+*.png binary
+*.zip binary
+*.love binary
