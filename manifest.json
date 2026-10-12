@@ -1,7 +1,7 @@
 {
   "id": "expanded_species",
   "name": "Expanded Species",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "author": "Mister Miracle",
   "description": "Cross-generation framework for custom Pokemon, safe saves, extended encounters, and author diagnostics.",
   "games": [

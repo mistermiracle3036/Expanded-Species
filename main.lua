@@ -1,4 +1,4 @@
-local VERSION = "0.7.0"
+local VERSION = "0.8.0"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
@@ -735,7 +735,148 @@ local function normalizeForRegistration(providerMod, definition, generation)
     return record
 end
 
-return function(mod)
+-- Shared species runtime (0.8.0, checker A-0079; exchange/CONTRACTS.md,
+-- "Shared Pokemon identity").  This file is ALSO the embeddable runtime: a
+-- standalone consumer (IPC, JQP) copies it byte-for-byte to
+-- lib/expanded_species_runtime.lua and runs
+--     local api = load(mod:read("lib/expanded_species_runtime.lua"))()(mod, { embedded = true })
+-- so a player gets its species without installing Expanded Species.
+--
+-- Several copies may load in one boot (the framework and N consumers).
+-- Exactly one -- the RUNNER -- allocates indices, rebuilds the Pokedex,
+-- installs visuals and bridges, and guards the save; every other copy's
+-- events and hooks pass straight through.  The election is deterministic
+-- and independent of load order (engine facts, v0.3.51):
+--   * `mods.loaded` fires once after every mod has loaded, and every
+--     listener receives the SAME payload table (src/mods/Loader.lua:2163,
+--     src/mods/Events.lua:46-60) -- each copy enrols there;
+--   * save.created and game.ready fire later (src/core/Game2.lua:1251-1255),
+--     by which point the roll is complete.
+-- Rule: the installed framework always runs (it alone holds encounter,
+-- gift, trainer and trade state); otherwise the highest runtime VERSION,
+-- ties to the lowest host mod id.  No _G, no engine change.
+--
+-- Guardian storage is the fixed namespace below, not the host's id, so the
+-- save protection survives whichever copy runs (it was mod.id, which equals
+-- this namespace for the framework itself -- unchanged for existing saves).
+local SAVE_NAMESPACE = "expanded_species"
+
+-- What an embedded copy offers: species registration, queries, the save
+-- guardian and shared identity.  Encounter, gift, trainer and trade helpers
+-- keep per-instance state, so they stay framework-only.
+local EMBEDDED_FEATURE_APIS = {
+    "addGrassEncounter", "addWaterEncounter", "addSwarmGrassEncounter",
+    "addSwarmWaterEncounter", "addFishingEncounter", "addBugContestEncounter",
+    "givePokemon", "startWildBattle", "registerGift",
+    "registerStationaryEncounter", "registerTrainerEncounter",
+    "patchVanillaTrainer", "registerTrade", "resetHelper",
+}
+local EMBEDDED_CAPABILITIES_OFF = {
+    extendedBugContest = true, extendedFishing = true, extendedGrass = true,
+    extendedSwarms = true, extendedWater = true, gifts = true,
+    runtimeWildBattles = true, scriptedStationary = true,
+    scriptedTrades = true, scriptedTrainers = true,
+    vanillaTrainerPatches = true,
+}
+
+local function versionParts(v)
+    local out = {}
+    for n in tostring(v or ""):gmatch("%d+") do out[#out + 1] = tonumber(n) end
+    return out
+end
+
+local function versionCompare(a, b)
+    local pa, pb = versionParts(a), versionParts(b)
+    for i = 1, math.max(#pa, #pb) do
+        local x, y = pa[i] or 0, pb[i] or 0
+        if x ~= y then return x < y and -1 or 1 end
+    end
+    return 0
+end
+
+-- `candidates` is the enrolment roll: { host, version, standalone }.
+local function electRunner(candidates)
+    local best
+    for _, c in ipairs(candidates or {}) do
+        if best == nil then
+            best = c
+        elseif c.standalone ~= best.standalone then
+            if c.standalone then best = c end
+        else
+            local cmp = versionCompare(c.version, best.version)
+            if cmp > 0 or (cmp == 0 and tostring(c.host) < tostring(best.host)) then
+                best = c
+            end
+        end
+    end
+    return best
+end
+
+-- A path names the provider's own file; the identity of the art is checked
+-- by hash in exchange/species_gate.py, so it is not compared here.
+local function pathLike(value)
+    return type(value) == "string" and (value:find("/", 1, true) ~= nil
+        or value:match("%.%a%a%a?%a?$") ~= nil)
+end
+
+-- Same species data, ignoring provider-local paths and the provenance
+-- stamp: two providers of one catalog entry produce records that differ
+-- only there.
+local function sameSpeciesData(a, b, key)
+    if key == "provider" or key == "api" then return true end
+    if pathLike(a) and pathLike(b) then return true end
+    if type(a) ~= type(b) then return false end
+    if type(a) ~= "table" then return a == b end
+    for k, v in pairs(a) do
+        if not sameSpeciesData(v, b[k], k) then return false end
+    end
+    for k, v in pairs(b) do
+        if a[k] == nil and not sameSpeciesData(nil, v, k) then return false end
+    end
+    return true
+end
+
+return function(mod, opts)
+    opts = type(opts) == "table" and opts or {}
+    local EMBEDDED = opts.embedded == true
+    -- the framework publishes on its own exports; an embedded copy hands
+    -- its API back to the host instead of taking over the host's exports
+    local API = EMBEDDED and {} or mod.exports
+    local SELF = { host = mod.id, version = VERSION, standalone = not EMBEDDED }
+    local roll -- this boot's enrolment roll, shared through mods.loaded
+
+    local function runner()
+        if roll == nil then return SELF end -- nothing enrolled (harness, early call)
+        return electRunner(roll) or SELF
+    end
+
+    local function isRunner()
+        return runner() == SELF
+    end
+
+    mod.events:on("mods.loaded", function(payload)
+        if type(payload) ~= "table" then return end
+        payload.expandedSpeciesRuntimes = payload.expandedSpeciesRuntimes or {}
+        local list = payload.expandedSpeciesRuntimes
+        list[#list + 1] = SELF
+        roll = list
+    end)
+
+    -- Every event and hook this runtime installs goes through these: only
+    -- the elected runner acts; any other copy passes the call along.
+    local function onEvent(name, callback)
+        mod.events:on(name, function(...)
+            if isRunner() then return callback(...) end
+        end)
+    end
+
+    local function wrapHook(name, callback)
+        mod.hooks:wrap(name, function(next_, ...)
+            if isRunner() then return callback(next_, ...) end
+            return next_(...)
+        end)
+    end
+
     local state = {
         activeGame = nil,
         species = {},
@@ -797,8 +938,12 @@ return function(mod)
 
     local function availableCapabilities()
         local result = copy(CAPABILITIES)
+        result.sharedIdentity = true
         if not isGen2() then
             for name in pairs(GEN2_ONLY_CAPABILITIES) do result[name] = false end
+        end
+        if EMBEDDED then
+            for name in pairs(EMBEDDED_CAPABILITIES_OFF) do result[name] = false end
         end
         return result
     end
@@ -919,10 +1064,12 @@ return function(mod)
     local function saveGuardian(save)
         if type(save) ~= "table" then return nil end
         save.modData = type(save.modData) == "table" and save.modData or {}
-        local bucket = save.modData[mod.id]
+        -- SAVE_NAMESPACE, not mod.id: the guardian must survive whichever
+        -- copy of this runtime is running (an embedded host has its own id)
+        local bucket = save.modData[SAVE_NAMESPACE]
         if type(bucket) ~= "table" then
             bucket = {}
-            save.modData[mod.id] = bucket
+            save.modData[SAVE_NAMESPACE] = bucket
         end
         local guardian = bucket.saveGuardian
         if type(guardian) ~= "table" then
@@ -2714,14 +2861,14 @@ return function(mod)
         return #customIds
     end
 
-    mod.exports.api_version = API_VERSION
+    API.api_version = API_VERSION
     -- Legacy packs commonly compare api_version to 1 exactly. Keep that
     -- scalar stable for the entire 1.x contract and negotiate new features by
     -- capability. A future breaking facade can be added under getApi(2)
     -- without taking getApi(1) away from existing authors.
-    mod.exports.latest_api_version = API_VERSION
-    mod.exports.version = VERSION
-    mod.exports.owns = {
+    API.latest_api_version = API_VERSION
+    API.version = VERSION
+    API.owns = {
         virtualSpeciesIndices = true,
         expandedSpeciesMetadata = true,
         customGen2PokedexRows = true,
@@ -2733,52 +2880,52 @@ return function(mod)
         checkpointContentProfiles = true,
         scriptedSpeciesHelpers = true,
     }
-    mod.exports.decorates = {
+    API.decorates = {
         vanillaTrainerParties = true,
     }
 
-    function mod.exports.capabilities()
+    function API.capabilities()
         return availableCapabilities()
     end
 
-    function mod.exports.supports(name)
+    function API.supports(name)
         return availableCapabilities()[name] == true
     end
 
     local function requireCapability(name)
-        assert(mod.exports.supports(name),
+        assert(API.supports(name),
             "Expanded Species: " .. tostring(name)
                 .. " is unavailable on this game generation")
     end
 
-    function mod.exports.supportsApi(version)
+    function API.supportsApi(version)
         return tonumber(version) == API_VERSION
     end
 
-    function mod.exports.getApi(version)
-        if mod.exports.supportsApi(version) then return mod.exports end
+    function API.getApi(version)
+        if API.supportsApi(version) then return API end
         return nil, "Expanded Species does not provide API " .. tostring(version)
     end
 
-    function mod.exports.requireCapabilities(names)
+    function API.requireCapabilities(names)
         assert(type(names) == "table",
             "Expanded Species: capability requirements must be a list")
         local missing = {}
         for _, name in ipairs(names) do
-            if not mod.exports.supports(name) then missing[#missing + 1] = name end
+            if not API.supports(name) then missing[#missing + 1] = name end
         end
         if #missing > 0 then
             return nil, "Expanded Species is missing capabilities: "
                 .. table.concat(missing, ", ")
         end
-        return mod.exports
+        return API
     end
 
-    function mod.exports.preflight(providerMod, definition)
+    function API.preflight(providerMod, definition)
         return speciesPreflight(providerMod, definition, activeGeneration())
     end
 
-    function mod.exports.register(providerMod, definition)
+    function API.register(providerMod, definition)
         local registry = providerMod
             and providerMod.content
             and providerMod.content.pokemon
@@ -2795,7 +2942,54 @@ return function(mod)
         return record
     end
 
-    function mod.exports.registerAll(providerMod, definitions)
+    -- Shared identity (capability "sharedIdentity"; exchange/CONTRACTS.md).
+    -- For a species listed in the shared catalog, which several standalone
+    -- mods may each carry.  `register` above still errors on a duplicate, as
+    -- the engine does (src/mods/Registry.lua:102-104); this one:
+    --   absent            -> register
+    --   present, same data (paths and provenance aside) -> override with
+    --                        this provider's own record, so ANY carrier can
+    --                        be rolled back later and the species survives
+    --                        (late rollback: src/mods/Loader.lua:1880-1897)
+    --   present, different -> refuse: nil + reason, and a visible [ERRS] row
+    -- Returns record, "registered" | "shared"; or nil, reason.  The catalog
+    -- pins the data, so a refusal means a provider shipped a payload that
+    -- is not the catalog's (exchange/species_gate.py catches it offline).
+    function API.registerShared(providerMod, definition)
+        local registry = providerMod
+            and providerMod.content
+            and providerMod.content.pokemon
+        assert(type(registry) == "table" and type(registry.override) == "function"
+            and type(registry.get) == "function",
+            "Expanded Species: provider mod has no Pokemon content registry")
+        local generation = activeGeneration()
+        local report = speciesPreflight(providerMod, definition, generation)
+        if not report.ok then
+            return nil, "invalid species: " .. issueText(report.errors)
+        end
+        local record = normalizeForRegistration(providerMod, report.definition,
+            generation)
+        local current = registry:get(record.id)
+        if current == nil then
+            registry:register(record.id, record)
+            return record, "registered"
+        end
+        if sameSpeciesData(current, record) then
+            registry:override(record.id, record)
+            return record, "shared"
+        end
+        local holder = type(current.expandedSpecies) == "table"
+            and current.expandedSpecies.provider or "another mod"
+        local reason = ("shared species %s differs from %s's copy; not registered")
+            :format(record.id, tostring(holder))
+        local ok, Runtime = pcall(require, "src.mods.Runtime")
+        if ok and type(Runtime) == "table" and type(Runtime.reportError) == "function" then
+            pcall(Runtime.reportError, providerMod.id, reason)
+        end
+        return nil, reason
+    end
+
+    function API.registerAll(providerMod, definitions)
         assert(type(definitions) == "table",
             "Expanded Species: registerAll expects a list of definitions")
         local reports, seen = {}, {}
@@ -2824,48 +3018,48 @@ return function(mod)
             .. table.concat(failures, " | "))
         local registered = {}
         for index, report in ipairs(reports) do
-            registered[index] = mod.exports.register(providerMod, report.definition)
+            registered[index] = API.register(providerMod, report.definition)
         end
         return registered
     end
 
-    function mod.exports.addGrassEncounter(providerMod, placement)
+    function API.addGrassEncounter(providerMod, placement)
         return addEncounterPlacement(providerMod, placement, "grass")
     end
 
-    function mod.exports.addWaterEncounter(providerMod, placement)
+    function API.addWaterEncounter(providerMod, placement)
         return addEncounterPlacement(providerMod, placement, "water")
     end
 
-    function mod.exports.addSwarmGrassEncounter(providerMod, placement)
+    function API.addSwarmGrassEncounter(providerMod, placement)
         requireCapability("extendedSwarms")
         return addEncounterPlacement(providerMod, placement, "swarmGrass")
     end
 
-    function mod.exports.addSwarmWaterEncounter(providerMod, placement)
+    function API.addSwarmWaterEncounter(providerMod, placement)
         requireCapability("extendedSwarms")
         return addEncounterPlacement(providerMod, placement, "swarmWater")
     end
 
-    function mod.exports.addFishingEncounter(providerMod, placement)
+    function API.addFishingEncounter(providerMod, placement)
         requireCapability("extendedFishing")
         return addFishingPlacement(providerMod, placement)
     end
 
-    function mod.exports.addBugContestEncounter(providerMod, placement)
+    function API.addBugContestEncounter(providerMod, placement)
         requireCapability("extendedBugContest")
         return addBugContestPlacement(providerMod, placement)
     end
 
-    function mod.exports.givePokemon(speciesId, level, opts)
+    function API.givePokemon(speciesId, level, opts)
         return givePokemon(speciesId, level, opts)
     end
 
-    function mod.exports.startWildBattle(speciesId, level, opts, onDone)
+    function API.startWildBattle(speciesId, level, opts, onDone)
         return startWildBattle(speciesId, level, opts, onDone)
     end
 
-    function mod.exports.registerGift(providerMod, spec)
+    function API.registerGift(providerMod, spec)
         requireCapability("gifts")
         assert(type(spec) == "table", "Expanded Species: gift definition is required")
         assert(type(spec.species) == "string" and spec.species ~= "",
@@ -2877,7 +3071,7 @@ return function(mod)
         return registerScriptHelper(providerMod, "gift", spec)
     end
 
-    function mod.exports.registerStationaryEncounter(providerMod, spec)
+    function API.registerStationaryEncounter(providerMod, spec)
         requireCapability("scriptedStationary")
         assert(type(spec) == "table",
             "Expanded Species: stationary definition is required")
@@ -2890,7 +3084,7 @@ return function(mod)
         return registerScriptHelper(providerMod, "stationary", spec)
     end
 
-    function mod.exports.registerTrainerEncounter(providerMod, spec)
+    function API.registerTrainerEncounter(providerMod, spec)
         requireCapability("scriptedTrainers")
         assert(type(spec) == "table",
             "Expanded Species: trainer definition is required")
@@ -2958,7 +3152,7 @@ return function(mod)
         return row, classRecord
     end
 
-    function mod.exports.patchVanillaTrainer(providerMod, spec)
+    function API.patchVanillaTrainer(providerMod, spec)
         requireCapability("vanillaTrainerPatches")
         assert(type(providerMod) == "table" and type(providerMod.id) == "string"
             and providerMod.id ~= "",
@@ -3038,12 +3232,12 @@ return function(mod)
         return copy(record)
     end
 
-    function mod.exports.trainerPatches(classValue, memberValue)
+    function API.trainerPatches(classValue, memberValue)
         local classId, memberId = trainerTargetIds(classValue, memberValue)
         return copy(sortedTrainerPatches(classId, memberId))
     end
 
-    function mod.exports.diagnoseTrainerPatches(classValue, memberValue)
+    function API.diagnoseTrainerPatches(classValue, memberValue)
         local errors, warnings = {}, {}
         local classId, memberId, class = trainerTargetIds(classValue, memberValue)
         local member
@@ -3131,7 +3325,7 @@ return function(mod)
         }
     end
 
-    function mod.exports.registerTrade(providerMod, spec)
+    function API.registerTrade(providerMod, spec)
         requireCapability("scriptedTrades")
         assert(type(spec) == "table", "Expanded Species: trade definition is required")
         assert(type(spec.id) == "string" and spec.id ~= "",
@@ -3190,19 +3384,19 @@ return function(mod)
         return row, copy(state.trades[key].row)
     end
 
-    function mod.exports.virtualIndex(speciesId)
+    function API.virtualIndex(speciesId)
         return state.species[speciesId]
     end
 
-    function mod.exports.all()
+    function API.all()
         return copy(state.order)
     end
 
-    function mod.exports.nextIndex()
+    function API.nextIndex()
         return state.nextIndex
     end
 
-    function mod.exports.owner(speciesId)
+    function API.owner(speciesId)
         local game = liveGame()
         local definition = game and game.data and game.data.pokemon
             and game.data.pokemon[speciesId]
@@ -3210,7 +3404,7 @@ return function(mod)
         return marker and marker.provider or nil
     end
 
-    function mod.exports.info(speciesId)
+    function API.info(speciesId)
         local game = liveGame()
         local definition = game and game.data and game.data.pokemon
             and game.data.pokemon[speciesId]
@@ -3227,17 +3421,17 @@ return function(mod)
         }
     end
 
-    function mod.exports.byProvider(provider)
+    function API.byProvider(provider)
         local wanted = type(provider) == "table" and provider.id or provider
         local out = {}
         for _, speciesId in ipairs(state.order) do
-            if mod.exports.owner(speciesId) == wanted then out[#out + 1] = speciesId end
+            if API.owner(speciesId) == wanted then out[#out + 1] = speciesId end
         end
         return out
     end
 
-    function mod.exports.forms(speciesId)
-        if not mod.exports.supports("cosmeticForms") then return {} end
+    function API.forms(speciesId)
+        if not API.supports("cosmeticForms") then return {} end
         local game = liveGame()
         local definition = game and game.data and game.data.pokemon
             and game.data.pokemon[speciesId]
@@ -3245,8 +3439,8 @@ return function(mod)
         return copy(marker and marker.forms or {})
     end
 
-    function mod.exports.getForm(mon)
-        if not mod.exports.supports("cosmeticForms") then return nil end
+    function API.getForm(mon)
+        if not API.supports("cosmeticForms") then return nil end
         if type(mon) ~= "table" then return nil end
         if mon.expandedForm ~= nil then return mon.expandedForm end
         local game = liveGame()
@@ -3256,35 +3450,35 @@ return function(mod)
         return marker and marker.defaultForm or nil
     end
 
-    function mod.exports.setForm(mon, formId)
+    function API.setForm(mon, formId)
         requireCapability("cosmeticForms")
         return setMonForm(mon, formId)
     end
 
-    function mod.exports.formInfo(mon)
-        if not mod.exports.supports("cosmeticForms") then return nil end
+    function API.formInfo(mon)
+        if not API.supports("cosmeticForms") then return nil end
         if type(mon) ~= "table" then return nil end
-        local formId = mod.exports.getForm(mon)
+        local formId = API.getForm(mon)
         local form = formDefinition(mon.species, formId)
         if not form then return nil end
         return { id = formId, species = mon.species, definition = copy(form) }
     end
 
-    function mod.exports.formScreenStatus()
+    function API.formScreenStatus()
         return copy(state.formBridge)
     end
 
-    function mod.exports.nestScreenStatus()
+    function API.nestScreenStatus()
         return copy(state.nestBridge)
     end
 
-    function mod.exports.missingCount()
+    function API.missingCount()
         local game = liveGame()
         local guardian = game and game.save and saveGuardian(game.save)
         return guardian and #guardian.missing or 0
     end
 
-    function mod.exports.missingInfo()
+    function API.missingInfo()
         local game = liveGame()
         local guardian = game and game.save and saveGuardian(game.save)
         local out = {}
@@ -3303,22 +3497,22 @@ return function(mod)
         return out
     end
 
-    function mod.exports.guardSave(save)
+    function API.guardSave(save)
         local game = liveGame()
         return guardianPass(save or (game and game.save), game)
     end
 
-    function mod.exports.checkpointProfile()
+    function API.checkpointProfile()
         local game = liveGame()
         local pokemon = game and game.data and game.data.pokemon
         return contentProfile(pokemon or {})
     end
 
-    function mod.exports.compareCheckpointProfile(profile)
-        return compareContentProfiles(profile, mod.exports.checkpointProfile())
+    function API.compareCheckpointProfile(profile)
+        return compareContentProfiles(profile, API.checkpointProfile())
     end
 
-    function mod.exports.diagnose(speciesId)
+    function API.diagnose(speciesId)
         local errors, warnings = {}, {}
         local game = liveGame()
         local data = game and game.data
@@ -3336,7 +3530,7 @@ return function(mod)
         if type(definition.spriteBack) ~= "string" then
             addIssue(errors, "spriteBack", "is missing")
         end
-        if mod.exports.supports("customDex") then
+        if API.supports("customDex") then
             local dex = data.gen2Pokedex and data.gen2Pokedex.entries
             if isCustomSpecies(definition) and not (dex and dex[speciesId]) then
                 addIssue(errors, "pokedex", "custom entry is missing")
@@ -3357,7 +3551,7 @@ return function(mod)
             addIssue(warnings, "cry", "no cry is registered under the species id")
         end
         local marker = markerFor(definition)
-        if mod.exports.supports("cosmeticForms")
+        if API.supports("cosmeticForms")
             and marker and type(marker.forms) == "table" then
             if marker.defaultForm and not marker.forms[marker.defaultForm] then
                 addIssue(errors, "defaultForm", "does not name a declared form")
@@ -3382,14 +3576,14 @@ return function(mod)
             id = speciesId,
             errors = errors,
             warnings = warnings,
-            info = mod.exports.info(speciesId),
+            info = API.info(speciesId),
         }
     end
 
-    function mod.exports.compatibilityReport(provider)
+    function API.compatibilityReport(provider)
         local wanted = type(provider) == "table" and provider.id or provider
         local missing = {}
-        for _, row in ipairs(mod.exports.missingInfo()) do
+        for _, row in ipairs(API.missingInfo()) do
             if not wanted or row.provider == wanted then
                 missing[#missing + 1] = row
             end
@@ -3404,9 +3598,9 @@ return function(mod)
             encounters = {},
             trainerPatches = {},
             missing = missing,
-            checkpoint = mod.exports.checkpointProfile(),
-            formScreens = mod.exports.formScreenStatus(),
-            nestScreen = mod.exports.nestScreenStatus(),
+            checkpoint = API.checkpointProfile(),
+            formScreens = API.formScreenStatus(),
+            nestScreen = API.nestScreenStatus(),
             errors = {},
             warnings = {},
         }
@@ -3417,9 +3611,9 @@ return function(mod)
             report.saveFormat = Version.saveFormat
         end
 
-        local ids = wanted and mod.exports.byProvider(wanted) or mod.exports.all()
+        local ids = wanted and API.byProvider(wanted) or API.all()
         for _, speciesId in ipairs(ids) do
-            local diagnosis = mod.exports.diagnose(speciesId)
+            local diagnosis = API.diagnose(speciesId)
             report.species[#report.species + 1] = diagnosis
             for _, issue in ipairs(diagnosis.errors or {}) do
                 report.errors[#report.errors + 1] = speciesId .. ": "
@@ -3475,8 +3669,8 @@ return function(mod)
         return report
     end
 
-    function mod.exports.formatCompatibilityReport(provider)
-        local report = mod.exports.compatibilityReport(provider)
+    function API.formatCompatibilityReport(provider)
+        local report = API.compatibilityReport(provider)
         local lines = {
             ("Expanded Species %s / engine %s / API %d")
                 :format(VERSION, tostring(report.engine or "unknown"), API_VERSION),
@@ -3499,11 +3693,11 @@ return function(mod)
         return table.concat(lines, "\n"), report
     end
 
-    function mod.exports.helperComplete(providerMod, kind, id)
+    function API.helperComplete(providerMod, kind, id)
         return saveGet(providerMod, saveKey(kind, id), false) == true
     end
 
-    function mod.exports.resetHelper(providerMod, kind, id)
+    function API.resetHelper(providerMod, kind, id)
         saveSet(providerMod, saveKey(kind, id), false)
         return true
     end
@@ -3516,7 +3710,7 @@ return function(mod)
             context and context.mon)
     end
 
-    mod.hooks:wrap("pokemon.sprite", function(next_, path, context)
+    wrapHook("pokemon.sprite", function(next_, path, context)
         local form = selectedForm(context)
         if form then
             local field = context.side == "back" and "spriteBack" or "spriteFront"
@@ -3528,7 +3722,7 @@ return function(mod)
         return next_(path, context)
     end)
 
-    mod.hooks:wrap("pokemon.icon", function(next_, path, context)
+    wrapHook("pokemon.icon", function(next_, path, context)
         local form = selectedForm(context)
         if form and type(form.icon) == "string" and form.icon ~= "" then
             path = form.icon
@@ -3536,9 +3730,9 @@ return function(mod)
         return next_(path, context)
     end)
 
-    mod.hooks:wrap("trainer.party", applyTrainerPatches)
+    wrapHook("trainer.party", applyTrainerPatches)
 
-    mod.hooks:wrap("encounter.roll", function(next_, tables, context)
+    wrapHook("encounter.roll", function(next_, tables, context)
         local rolled = next_(tables, context)
         if type(context) ~= "table" then return rolled end
 
@@ -3546,7 +3740,7 @@ return function(mod)
         local pokemon = context.data and context.data.pokemon
             or (live and live.data and live.data.pokemon)
         if context.kind == "contest" then
-            if not mod.exports.supports("extendedBugContest") then return rolled end
+            if not API.supports("extendedBugContest") then return rolled end
             local pool = state.encounters.bugContest
             if not pool or #pool == 0 then return rolled end
             return customContestEncounter(pool, context.rng, pokemon) or rolled
@@ -3588,10 +3782,10 @@ return function(mod)
         return customEncounter(pool, context.rng, pokemon) or rolled
     end)
 
-    mod.hooks:wrap("encounter.fishing", function(next_, rod, mapId, candidates,
+    wrapHook("encounter.fishing", function(next_, rod, mapId, candidates,
             context)
         local rolled = next_(rod, mapId, candidates, context)
-        if not mod.exports.supports("extendedFishing") then return rolled end
+        if not API.supports("extendedFishing") then return rolled end
         local byRod = state.encounters.fishing[mapId]
         local pool = byRod and byRod[FISHING_RODS[rod] or rod]
         if not pool or #pool == 0 then return rolled end
@@ -3651,11 +3845,11 @@ return function(mod)
         return true
     end
 
-    mod.events:on("save.created", function(context)
+    onEvent("save.created", function(context)
         guardianPass(context and context.save, liveGame())
     end)
 
-    mod.events:on("save.loading", function(context)
+    onEvent("save.loading", function(context)
         local result = guardianPass(context and context.raw, liveGame())
         state.guardianNotice = result
         if result.quarantined > 0 then
@@ -3667,17 +3861,17 @@ return function(mod)
         end
     end)
 
-    mod.events:on("save.writing", function(context)
+    onEvent("save.writing", function(context)
         guardianPass(context and context.save, liveGame())
     end)
 
-    mod.events:on("save.loaded", function(context)
+    onEvent("save.loaded", function(context)
         local notice = state.guardianNotice
         state.guardianNotice = nil
         showGuardianNotice(notice, liveGame())
     end)
 
-    mod.events:on("checkpoint.restored", function(context)
+    onEvent("checkpoint.restored", function(context)
         local game = context and context.game or liveGame()
         local result = guardianPass(game and game.save, game)
         local compatibility = result.compatibility or {}
@@ -3694,7 +3888,7 @@ return function(mod)
         end
     end)
 
-    mod.events:on("game.ready", function(context)
+    onEvent("game.ready", function(context)
         local game = context and context.game or mod.game
         state.activeGame = game
         reconcile(game)
@@ -3703,6 +3897,44 @@ return function(mod)
             installNestBridge()
         end
     end)
+
+    -- The copy's own implementation, so an elected embedded runner can be
+    -- queried by the others (the framework, always runner when installed,
+    -- is reached through its own exports).
+    local impl = {}
+    for name, value in pairs(API) do impl[name] = value end
+    SELF.api = impl
+
+    if EMBEDDED then
+        -- Calls made while the host's own entry chunk runs register into
+        -- shared data and stay local; everything else answers from the
+        -- elected runner, which is the copy that allocated and guards.
+        local LOCAL = {
+            api_version = true, latest_api_version = true, version = true,
+            owns = true, decorates = true, capabilities = true, supports = true,
+            supportsApi = true, getApi = true, requireCapabilities = true,
+            preflight = true, register = true, registerAll = true,
+            registerShared = true,
+        }
+        for name, value in pairs(impl) do
+            if type(value) == "function" and not LOCAL[name] then
+                API[name] = function(...)
+                    local elected = runner()
+                    local target = elected.api or impl
+                    return target[name](...)
+                end
+            end
+        end
+        for _, name in ipairs(EMBEDDED_FEATURE_APIS) do
+            API[name] = function()
+                error("Expanded Species: " .. name .. " needs the Expanded Species"
+                    .. " mod installed; an embedded runtime carries species only", 2)
+            end
+        end
+        API.embedded = true
+        mod.log:info("Expanded Species runtime %s embedded in %s", VERSION, tostring(mod.id))
+        return API
+    end
 
     mod.log:info("Expanded Species %s loaded", VERSION)
 end

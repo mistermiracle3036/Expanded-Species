@@ -1068,6 +1068,46 @@ This protection requires Expanded Species itself to load. gen1recomp 0.1.94
 does not expose a mod-disable/update veto, so disabling or removing the
 framework cannot be intercepted by a provider pack.
 
+## Shared species and the embedded runtime (0.8.0)
+
+Some species are carried by several standalone mods at once -- IPC's Ralts,
+Johto Quest Pack's future gifts. Those species are listed in the portfolio's
+shared catalog (`exchange/species/catalog.json`; contract "Shared Pokemon
+identity" in `exchange/CONTRACTS.md`) and are registered differently:
+
+```lua
+-- in the CONSUMER mod (no hard dependency on Expanded Species)
+local runtime = load(mod:read("lib/expanded_species_runtime.lua"))()
+local species = runtime(mod, { embedded = true })
+local record, how = species.registerShared(mod, RALTS_DEFINITION)
+if not record then
+  -- `how` is the reason; an [ERRS] row has already been shown. Disable
+  -- what depended on this species instead of substituting another.
+end
+```
+
+- `lib/expanded_species_runtime.lua` is THIS mod's `main.lua`, copied
+  byte-for-byte. Never edit the copy; `exchange/species_gate.py` checks it
+  against a released version.
+- `registerShared`: absent -> registered; already registered with the SAME
+  data (asset paths and the provider stamp aside) -> shared; registered with
+  DIFFERENT data -> refused with a reason and a visible error. Plain
+  `register` still errors on any duplicate, as the engine does.
+- When several copies load, exactly one runs (numbering, Pokedex, visuals,
+  save protection): Expanded Species itself whenever it is installed;
+  otherwise the highest runtime version, ties to the lowest host mod id. The
+  others pass every event and hook through. Load order does not matter.
+- An embedded copy offers registration, queries, cosmetic-form queries and
+  save protection (`supports("sharedIdentity")`). Encounters, gifts,
+  trainers, trades and wild battles keep per-instance state and stay
+  framework-only: on an embedded copy they report `false` from `supports`
+  and raise if called.
+- Save protection keeps its data in `save.modData.expanded_species`
+  whichever copy runs, so it survives switching between the framework and a
+  mod that embeds it.
+- Verified by `tests/shared_runtime_harness.lua` (engine Registry, three
+  copies, both load orders, with and without the framework, late rollback).
+
 ## Compatibility boundary
 
 Virtual indices are an engine-runtime extension, not an alteration to the Game

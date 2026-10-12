@@ -1,3 +1,36 @@
+## [0.8.0] — 2026-10-12
+
+**Updating from 0.6.6?** Red, Blue and Yellow can now use custom species too
+(0.7.0, below). And from this version, a mod that adds new Pokemon can carry
+them on its own: you no longer have to install Expanded Species just because
+another mod brings, say, Ralts -- and when two mods bring the same Pokemon,
+the game has one Ralts with the same data whichever loads first.
+
+### Added
+
+- **Shared runtime.** This framework's own code can now be embedded inside
+  another mod (`lib/expanded_species_runtime.lua`, loaded with
+  `{ embedded = true }`). When several copies load, exactly one runs the
+  Pokedex, sprites, numbering and save protection; the others stand aside.
+  If Expanded Species itself is installed it is always the one that runs.
+- **`registerShared(providerMod, definition)`** (capability `sharedIdentity`)
+  for species in the portfolio's shared catalog: the first mod registers it,
+  a mod carrying identical data shares it, and a mod carrying different data
+  is refused with a visible error instead of silently replacing it.
+
+### Changed
+
+- Save protection keeps its data under `expanded_species` whichever copy is
+  running, so hidden Pokemon are still restored if you later switch between
+  the framework and a mod that embeds it. Existing saves are unchanged.
+
+### Compatibility
+
+- API version stays 1; every existing call and capability is unchanged when
+  Expanded Species is installed. An embedded copy offers species registration,
+  queries and save protection only -- encounters, gifts, trainers and trades
+  still need Expanded Species installed, and say so if called.
+
 ## [0.7.0] — 2026-08-26
 
 ### Added
