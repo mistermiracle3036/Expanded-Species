@@ -615,6 +615,23 @@ if arg and arg[1] then
             })
         end,
         playerPic = function(path) return path, false end,
+        -- engine 0.3.x screens (BoxMenu.lua:790) resolve through Sprites.pic;
+        -- mirrors engine/src/pokemon/Sprites.lua:39-53 over the same hook
+        pic = function(path, ctx)
+            ctx = ctx or {}
+            ctx.side = ctx.side == "back" and "back" or "front"
+            ctx.kind = ctx.kind or "battle"
+            if ctx.trueColor == nil then
+                local def = ctx.data and ctx.data.pokemon and ctx.species
+                    and ctx.data.pokemon[ctx.species]
+                ctx.trueColor = (def and def.trueColor) and true or false
+            end
+            if path then
+                local hooked = spriteHook(function(value) return value end, path, ctx)
+                if type(hooked) == "string" and hooked ~= "" then path = hooked end
+            end
+            return path, ctx.trueColor and true or false
+        end,
     }
     local Schemas = require("src.mods.Schemas")
     local sample = registered.TEST_PACK_ALPHA
