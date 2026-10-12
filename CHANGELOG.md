@@ -1,4 +1,19 @@
-## [0.8.0] — 2026-10-12
+## [0.8.1] — 2026-10-12
+
+**Updating from 0.6.6?** Red, Blue and Yellow can now use custom species too
+(0.7.0). And a mod that adds new Pokemon can now carry them on its own -- you
+no longer need Expanded Species installed just because another mod brings,
+say, Ralts, and two mods bringing the same Pokemon give you one, with the
+same data whichever loads first (0.8.0, below).
+
+### Fixed
+
+- A mod carrying the shared species runtime now steps aside when an older
+  Expanded Species (before 0.8.0) is installed, instead of running beside
+  it: one set of numbers and one save protection, and an error asking you
+  to update Expanded Species.
+
+## [0.8.0] — 2026-10-12 (not released)
 
 **Updating from 0.6.6?** Red, Blue and Yellow can now use custom species too
 (0.7.0, below). And from this version, a mod that adds new Pokemon can carry

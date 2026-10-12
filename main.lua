@@ -1,4 +1,4 @@
-local VERSION = "0.8.0"
+local VERSION = "0.8.1"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
@@ -814,6 +814,10 @@ end
 
 -- A path names the provider's own file; the identity of the art is checked
 -- by hash in exchange/species_gate.py, so it is not compared here.
+-- Deliberately loose: ANY two strings that both contain "/" (or end in a
+-- short extension) compare equal, so a label like "Psychic/Fairy" would too.
+-- Safe only because the catalog pins every shared payload and the gate
+-- compares definition hashes; do not rely on this for unpinned data.
 local function pathLike(value)
     return type(value) == "string" and (value:find("/", 1, true) ~= nil
         or value:match("%.%a%a%a?%a?$") ~= nil)
@@ -844,9 +848,43 @@ return function(mod, opts)
     local API = EMBEDDED and {} or mod.exports
     local SELF = { host = mod.id, version = VERSION, standalone = not EMBEDDED }
     local roll -- this boot's enrolment roll, shared through mods.loaded
+    local legacyReported = false
+
+    -- An installed framework OLDER than 0.8.0 never enrols (it predates the
+    -- election), so without this an embedded copy would elect itself and run
+    -- BESIDE it: two allocators and two guardians on one save namespace
+    -- (Fable's review, 2026-10-12). mod.find reports any active mod and its
+    -- version (src/mods/Loader.lua:1642-1649); a framework that is active
+    -- but absent from the roll is that case. Every embedded copy stands
+    -- down, answers queries from the old framework, and says so once.
+    local function legacyFramework()
+        if not EMBEDDED or type(mod.find) ~= "function" then return nil end
+        local found = mod.find(SAVE_NAMESPACE)
+        if not found then return nil end
+        for _, c in ipairs(roll or {}) do
+            if c.standalone and c.host == SAVE_NAMESPACE then return nil end
+        end
+        return { host = SAVE_NAMESPACE, version = found.version, standalone = true,
+                 legacy = true, api = found.exports }
+    end
 
     local function runner()
         if roll == nil then return SELF end -- nothing enrolled (harness, early call)
+        local legacy = legacyFramework()
+        if legacy then
+            if not legacyReported then
+                legacyReported = true
+                local message = "update Expanded Species to 0.8.x (found "
+                    .. tostring(legacy.version) .. ")"
+                local ok, Runtime = pcall(require, "src.mods.Runtime")
+                if ok and type(Runtime) == "table" and type(Runtime.reportError) == "function" then
+                    pcall(Runtime.reportError, mod.id, message)
+                end
+                mod.log:warn("Expanded Species runtime in %s stands down: %s",
+                    tostring(mod.id), message)
+            end
+            return legacy
+        end
         return electRunner(roll) or SELF
     end
 

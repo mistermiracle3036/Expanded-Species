@@ -226,5 +226,35 @@ do
         next(jqp.exports) == nil and jqpApi.embedded == true)
 end
 
+-- ---------------------------------------------------------------------------
+-- 4. 0.8.1: an installed framework older than 0.8.0 never enrols; every
+--    embedded copy must stand down, answer from it, and say so once
+do
+    local w = world()
+    local legacyExports = { nextIndex = function() return 777 end }
+    w.mods["expanded_species"] = { version = "0.7.0", exports = legacyExports } -- active, no enrolment
+    local ipc, ipcApi = loadCopy(w, "indigo_conference", true)
+    local jqp, jqpApi = loadCopy(w, "johto_quest_pack", true)
+    local game = fakeGame()
+    local Runtime = require("src.mods.Runtime")
+    Runtime.errors = {}
+    boot(w, game)
+    check("legacy framework: no embedded copy allocates", #runnersOf(w) == 0)
+    w.emit("save.writing", { save = game.save })
+    check("legacy framework: no embedded guardian touches the save",
+        game.save.modData.expanded_species == nil)
+    check("legacy framework: queries answer from the old framework",
+        ipcApi.nextIndex() == 777 and jqpApi.nextIndex() == 777)
+    w.emit("save.writing", { save = game.save })
+    local reported = {}
+    for _, e in ipairs(Runtime.errors) do
+        if e:find("update Expanded Species to 0.8.x", 1, true) then
+            reported[#reported + 1] = e
+        end
+    end
+    check("legacy framework: each host reports it once, visibly", #reported == 2)
+    Runtime.errors = nil
+end
+
 print(failures == 0 and "ALL PASS" or (failures .. " FAILED"))
 os.exit(failures == 0 and 0 or 1)
