@@ -1,4 +1,4 @@
-local VERSION = "0.8.1"
+local VERSION = "0.8.2"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
@@ -273,6 +273,10 @@ local function sortedCustomSpecies(pokemon)
     return result
 end
 
+-- species id -> the catalog's own feet/inches/pounds, captured where a Gen 2
+-- dexEntry is converted to metric (applySpeciesDefaults, 0.8.2)
+local SOURCE_IMPERIAL = {}
+
 local function customDexEntry(speciesId, definition)
     local marker = markerFor(definition) or {}
     local supplied = marker.dexEntry
@@ -281,16 +285,31 @@ local function customDexEntry(speciesId, definition)
     end
     supplied = supplied or {}
 
+    -- 0.8.2: a Gen 2 record carries metric only (REQUESTS 123). Engines from
+    -- v0.3.61 draw heightM/weightKg; older ones draw the packed imperial
+    -- pair, so derive it back from the metric when the imperial is gone.
+    local heightM, weightKg = tonumber(supplied.heightM), tonumber(supplied.weightKg)
+    local imperial = SOURCE_IMPERIAL[speciesId]
+    if imperial and supplied.heightFt == nil and supplied.weightLbs == nil then
+        supplied = setmetatable({ heightFt = imperial.heightFt,
+            heightIn = imperial.heightIn, weightLbs = imperial.weightLbs },
+            { __index = supplied })
+    end
     local height = supplied.height
     if not isInteger(height) then
-        local feet = tonumber(supplied.heightFt) or 0
-        local inches = tonumber(supplied.heightIn) or 0
-        height = math.max(0, math.floor(feet)) * 100 + math.max(0, math.floor(inches))
+        local feet = tonumber(supplied.heightFt)
+        local inches = tonumber(supplied.heightIn)
+        if feet == nil and inches == nil and heightM then
+            local total = math.floor(heightM / 0.0254 + 0.5)
+            feet, inches = math.floor(total / 12), total % 12
+        end
+        height = math.max(0, math.floor(feet or 0)) * 100 + math.max(0, math.floor(inches or 0))
     end
 
     local weight = supplied.weight
     if type(weight) ~= "number" then
         local pounds = tonumber(supplied.weightLbs)
+        if pounds == nil and weightKg then pounds = weightKg / 0.45359237 end
         weight = pounds and math.floor(pounds * 10 + 0.5) or 0
     end
 
@@ -300,6 +319,8 @@ local function customDexEntry(speciesId, definition)
         kind = supplied.kind or "CUSTOM",
         height = height,
         weight = weight,
+        heightM = heightM,
+        weightKg = weightKg,
         text = supplied.text or "A custom species.<NEXT>Added by a mod.",
         text2 = supplied.text2 or "Its data uses a<NEXT>virtual species ID.",
     }
@@ -494,6 +515,28 @@ local function applySpeciesDefaults(definition, generation)
     else
         if record.levelMoves == nil then record.levelMoves = {} end
         if record.picSize == nil then record.picSize = 7 end
+        -- 0.8.2 (REQUESTS 123): engine v0.3.61+ (722c2fc4) closed Gen 2's
+        -- dexEntry to { kind, text, text2, heightM, weightKg }, and the
+        -- catalog definitions carry imperial heightFt/heightIn/weightLbs, so
+        -- every shared species was refused ("dexEntry.weightLbs: unknown
+        -- field"). Converted here, once, for every provider -- the formula
+        -- is IPC 1.1.75's shim, byte for byte, so its records still compare
+        -- equal. v0.3.51 declares no Gen 2 dexEntry shape and takes either.
+        local d = record.dexEntry
+        if type(d) == "table" and (d.heightFt or d.heightIn or d.weightLbs) then
+            -- the exact imperial, for engines before v0.3.61 that still draw
+            -- it (customDexEntry); kept OUT of the record, so a provider
+            -- that converted before calling compares equal to one that did not
+            SOURCE_IMPERIAL[record.id] = { heightFt = d.heightFt,
+                heightIn = d.heightIn, weightLbs = d.weightLbs }
+            local inches = (tonumber(d.heightFt) or 0) * 12 + (tonumber(d.heightIn) or 0)
+            record.dexEntry = {
+                kind = d.kind, text = d.text, text2 = d.text2,
+                heightM = d.heightM or math.floor(inches * 0.254 + 0.5) / 10,
+                weightKg = d.weightKg or (tonumber(d.weightLbs)
+                    and math.floor(tonumber(d.weightLbs) * 4.5359237 + 0.5) / 10),
+            }
+        end
     end
     return record
 end
@@ -3007,13 +3050,40 @@ return function(mod, opts)
         end
         local record = normalizeForRegistration(providerMod, report.definition,
             generation)
+        -- 0.8.2 (REQUESTS 131): the catalog's `cryBase` becomes an engine
+        -- derived cry, { base = <vanilla cry> } (src/core/Sound.lua
+        -- resolveCry; R.cries is the same on v0.3.51 and v0.3.85). Without
+        -- it Sound.playCry finds no cries[species] and the species is silent.
+        -- Same rule as the species: absent -> register; the identical cry ->
+        -- override (any carrier can be rolled back); different -> keep the
+        -- other mod's and say so. Lifted from IPC 1.1.76 unchanged.
+        local function shareCry()
+            local cries = providerMod.content.cries
+            if type(record.cryBase) ~= "string" or type(cries) ~= "table" then return end
+            local cry = { base = record.cryBase }
+            local cur = cries:get(record.id)
+            if cur == nil then
+                cries:register(record.id, cry)
+            elseif type(cur) == "table" and cur.base == record.cryBase
+                and cur.pitch == nil and cur.length == nil then
+                cries:override(record.id, cry)
+            else
+                local ok, Runtime = pcall(require, "src.mods.Runtime")
+                if ok and type(Runtime) == "table" and type(Runtime.reportError) == "function" then
+                    pcall(Runtime.reportError, providerMod.id,
+                        ("CRY %s\nkept other mod's"):format(record.id))
+                end
+            end
+        end
         local current = registry:get(record.id)
         if current == nil then
             registry:register(record.id, record)
+            shareCry()
             return record, "registered"
         end
         if sameSpeciesData(current, record) then
             registry:override(record.id, record)
+            shareCry()
             return record, "shared"
         end
         local holder = type(current.expandedSpecies) == "table"

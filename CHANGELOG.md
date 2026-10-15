@@ -1,3 +1,21 @@
+## [0.8.2] — 2026-10-14
+
+**Updating from 0.6.6?** Red, Blue and Yellow can now use custom species too
+(0.7.0). A mod that adds new Pokemon can carry them on its own, and two mods
+bringing the same Pokemon give you one (0.8.0). And on current versions of
+the game, those Pokemon now load and have their cries (below).
+
+### Fixed
+
+- **Shared Pokemon load on the current game again.** Gold, Silver and
+  Crystal now show Pokedex heights and weights in metres and kilograms, and
+  the shared Pokemon still described theirs in feet and pounds, so the game
+  turned every one of them away. They are converted for you now, with the
+  same numbers on every mod that carries them.
+- **Shared Pokemon have cries.** Each one now cries with the voice its
+  catalog entry names (Aggron borrows Rhyhorn's, for example); before, they
+  were silent.
+
 ## [0.8.1] — 2026-10-12
 
 **Updating from 0.6.6?** Red, Blue and Yellow can now use custom species too
