@@ -1,4 +1,4 @@
-local VERSION = "0.8.2"
+local VERSION = "0.8.3"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
@@ -945,10 +945,14 @@ return function(mod, opts)
 
     -- Every event and hook this runtime installs goes through these: only
     -- the elected runner acts; any other copy passes the call along.
+    -- REQUESTS 860 / 898: the guardian listens at a LOW priority (Events.lua runs higher first), so every
+    -- other mod's restore on the same event -- Kanto-Contests' two contest-party stash pairs in main.lua
+    -- and species_support.lua -- has put its Pokemon back before the guardian looks at the party.
+    local GUARDIAN_PRIORITY = -100
     local function onEvent(name, callback)
         mod.events:on(name, function(...)
             if isRunner() then return callback(...) end
-        end)
+        end, GUARDIAN_PRIORITY)
     end
 
     local function wrapHook(name, callback)
@@ -1277,9 +1281,40 @@ return function(mod, opts)
         return entry
     end
 
+    -- REQUESTS 860 / 898: an indexed source (party, a box, the bug-contest stash) stores its index in the
+    -- FULL frame: the list as it would be with every hidden mon of that container still in it. So two
+    -- packs hidden in the same load or in separate loads both come back in their original order:
+    -- restoreAvailable inserts each at its full index minus the hidden entries still ahead of it.
+    local function containerKey(source)
+        if type(source) ~= "table" then return nil end
+        if source.kind == "party" then return "party" end
+        if source.kind == "box" then return "box:" .. tostring(source.box) end
+        if source.kind == "bugContestStash" then return "stash" end
+        return nil
+    end
+
+    -- fullIndexOf[p] for p = 1..count live slots, skipping the full-frame indices already hidden
+    local function fullFrame(guardian, key, count)
+        local hidden = {}
+        for _, entry in ipairs(guardian.missing or {}) do
+            local source = type(entry) == "table" and entry.source
+            if containerKey(source) == key and tonumber(source.index) then
+                hidden[math.floor(tonumber(source.index))] = true
+            end
+        end
+        local out, f = {}, 1
+        for p = 1, count do
+            while hidden[f] do f = f + 1 end
+            out[p] = f
+            f = f + 1
+        end
+        return out
+    end
+
     local function quarantineMissing(save, pokemon, guardian)
         local moved = 0
         save.party = type(save.party) == "table" and save.party or {}
+        local partyFull = fullFrame(guardian, "party", #save.party)
         for index = #save.party, 1, -1 do
             local mon = save.party[index]
             if missingDefinition(mon, pokemon) then
@@ -1287,7 +1322,7 @@ return function(mod, opts)
                 table.remove(save.party, index)
                 if isGen2() then removePartyMail(save, index) end
                 quarantineEntry(guardian, mon,
-                    { kind = "party", index = index }, mail)
+                    { kind = "party", index = partyFull[index] }, mail)
                 moved = moved + 1
             end
         end
@@ -1296,12 +1331,13 @@ return function(mod, opts)
         for boxIndex = 1, boxCount() do
             local box = save.boxes[boxIndex]
             if type(box) == "table" then
+                local boxFull = fullFrame(guardian, "box:" .. tostring(boxIndex), #box)
                 for index = #box, 1, -1 do
                     local mon = box[index]
                     if missingDefinition(mon, pokemon) then
                         table.remove(box, index)
                         quarantineEntry(guardian, mon,
-                            { kind = "box", box = boxIndex, index = index })
+                            { kind = "box", box = boxIndex, index = boxFull[index] })
                         moved = moved + 1
                     end
                 end
@@ -1341,12 +1377,13 @@ return function(mod, opts)
         if type(contest) == "table" then
             local stash = contest.stash
             if type(stash) == "table" then
+                local stashFull = fullFrame(guardian, "stash", #stash)
                 for index = #stash, 1, -1 do
                     local mon = stash[index]
                     if missingDefinition(mon, pokemon) then
                         table.remove(stash, index)
                         quarantineEntry(guardian, mon,
-                            { kind = "bugContestStash", index = index })
+                            { kind = "bugContestStash", index = stashFull[index] })
                         moved = moved + 1
                     end
                 end
@@ -1455,20 +1492,37 @@ return function(mod, opts)
     local function restoreAvailable(save, pokemon, guardian)
         local restored = 0
         local remaining = {}
+        -- REQUESTS 860 / 898: indexed entries go back in ascending FULL-frame index per container (see
+        -- containerKey), each at its index minus the entries of that container still hidden ahead of it;
+        -- that reproduces the original order however many loads hid them. Others keep sequence order.
+        local function indexOf(entry)
+            local source = type(entry) == "table" and entry.source
+            return containerKey(source) and tonumber(source.index) or nil
+        end
         table.sort(guardian.missing, function(left, right)
+            local li, ri = indexOf(left), indexOf(right)
+            if li and ri and li ~= ri then return li < ri end
             local leftSequence = type(left) == "table" and left.sequence or 0
             local rightSequence = type(right) == "table" and right.sequence or 0
             return (tonumber(leftSequence) or 0) < (tonumber(rightSequence) or 0)
         end)
+        local heldAhead = {}   -- container key -> count of its entries kept hidden so far
         for _, entry in ipairs(guardian.missing) do
             local mon = type(entry) == "table" and entry.mon
             local speciesId = mon and mon.species
                 or (type(entry) == "table" and entry.species)
+            local key = type(entry) == "table" and containerKey(entry.source)
+            local attempt = entry
+            if key and tonumber(entry.source.index) then
+                attempt = setmetatable({ source = copy(entry.source) }, { __index = entry })
+                attempt.source.index = math.floor(tonumber(entry.source.index)) - (heldAhead[key] or 0)
+            end
             if type(mon) == "table" and pokemon and pokemon[speciesId]
-                and (restoreExact(save, entry) or restoreFallback(save, entry)) then
+                and (restoreExact(save, attempt) or restoreFallback(save, entry)) then
                 restored = restored + 1
             else
                 remaining[#remaining + 1] = entry
+                if key then heldAhead[key] = (heldAhead[key] or 0) + 1 end
             end
         end
         guardian.missing = remaining

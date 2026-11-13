@@ -1,3 +1,19 @@
+## [0.8.3] — 2026-11-13
+
+**Updating from 0.6.6?** Red, Blue and Yellow can use custom species (0.7.0); a mod that adds
+new Pokemon can carry them on its own, and two mods bringing the same Pokemon give you one
+(0.8.0); those Pokemon load on the current game and have their cries (0.8.2); and safe storage
+now puts them back exactly where they were (below).
+
+### Fixed
+
+- **Pokemon come back in the right order.** When a pack that adds Pokemon is missing, its
+  Pokemon wait safely out of sight and return when the pack is back. With two of them in your
+  party or one PC box, they could come back in swapped places, changing your lead. They now
+  return to their exact slots, whether their packs went missing together or on different days.
+- **Works alongside the Bug-Catching Contest's party swap.** Safe storage now waits until other
+  mods (Kanto Contests) have put your contest party back before it looks at your Pokemon.
+
 ## [0.8.2] — 2026-10-14
 
 **Updating from 0.6.6?** Red, Blue and Yellow can now use custom species too

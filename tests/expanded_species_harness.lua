@@ -31,10 +31,12 @@ local framework = {
     log = {},
 }
 
-function framework.events:on(eventName, callback)
+eventPriorities = {}
+function framework.events:on(eventName, callback, priority)
     expect(eventCallbacks[eventName] == nil,
         "framework should subscribe once to " .. tostring(eventName))
     eventCallbacks[eventName] = callback
+    eventPriorities[eventName] = priority
     if eventName == "game.ready" then readyCallback = callback end
 end
 
@@ -1261,6 +1263,69 @@ pokemon.TEST_PACK_ALPHA = checkpointDefinition
 framework.exports.guardSave(checkpointSave)
 expectEqual(checkpointSave.party[1].customField, "checkpoint-record",
     "checkpoint-protected record restores when content returns")
+
+-- REQUESTS 860 / 898 item 2: restore order. Hidden party/box members come back in their ORIGINAL
+-- order whether their packs went missing in one load or in separate loads.
+do
+    local alphaDef, betaDef = pokemon.TEST_PACK_ALPHA, pokemon.TEST_PACK_BETA
+    local function orderOf(list)
+        local out = {}
+        for i, mon in ipairs(list) do out[i] = mon.tag end
+        return table.concat(out, ",")
+    end
+    local function freshSave()
+        return {
+            party = { { species = "TEST_PACK_ALPHA", level = 9, tag = "A" },
+                      { species = "TEST_PACK_BETA", level = 9, tag = "B" },
+                      { species = "DITTO", level = 9, tag = "D" } },
+            boxes = { [1] = { { species = "DITTO", level = 5, tag = "x" },
+                              { species = "TEST_PACK_ALPHA", level = 5, tag = "a" },
+                              { species = "DITTO", level = 5, tag = "y" },
+                              { species = "TEST_PACK_BETA", level = 5, tag = "b" } } },
+            mail = { party = {}, box = {} },
+            modData = {},
+        }
+    end
+
+    -- same load: both packs missing at once
+    local s = freshSave()
+    game.save = s
+    pokemon.TEST_PACK_ALPHA, pokemon.TEST_PACK_BETA = nil, nil
+    framework.exports.guardSave(s)
+    expectEqual(orderOf(s.party), "D", "same load: both hidden")
+    expectEqual(orderOf(s.boxes[1]), "x,y", "same load: both hidden in the box")
+    pokemon.TEST_PACK_ALPHA, pokemon.TEST_PACK_BETA = alphaDef, betaDef
+    framework.exports.guardSave(s)
+    expectEqual(orderOf(s.party), "A,B,D", "same load: party order restored (was A,D,B)")
+    expectEqual(orderOf(s.boxes[1]), "x,a,y,b", "same load: box order restored")
+
+    -- separate loads: BETA's pack goes first, ALPHA's on a later load
+    s = freshSave()
+    game.save = s
+    pokemon.TEST_PACK_BETA = nil
+    framework.exports.guardSave(s)
+    expectEqual(orderOf(s.party), "A,D", "separate loads: BETA hidden first")
+    pokemon.TEST_PACK_ALPHA = nil
+    framework.exports.guardSave(s)
+    expectEqual(orderOf(s.party), "D", "separate loads: ALPHA hidden next")
+    expectEqual(orderOf(s.boxes[1]), "x,y", "separate loads: box members hidden")
+    -- only one pack returns: it goes back in place, the other stays hidden
+    pokemon.TEST_PACK_ALPHA = alphaDef
+    framework.exports.guardSave(s)
+    expectEqual(orderOf(s.party), "A,D", "separate loads: ALPHA alone returns to slot 1")
+    expectEqual(orderOf(s.boxes[1]), "x,a,y", "separate loads: box ALPHA returns in place")
+    pokemon.TEST_PACK_BETA = betaDef
+    framework.exports.guardSave(s)
+    expectEqual(orderOf(s.party), "A,B,D", "separate loads: party order restored (was B,A,D)")
+    expectEqual(orderOf(s.boxes[1]), "x,a,y,b", "separate loads: box order restored")
+    expectEqual(framework.exports.missingCount(), 0, "restore-order cases leave nothing hidden")
+
+    -- REQUESTS 860 item 2: the guardian listens at a low priority, after other mods' restores
+    expectEqual(eventPriorities and eventPriorities["save.loading"], -100,
+        "guardian save.loading runs after other listeners (priority -100)")
+    expectEqual(eventPriorities and eventPriorities["checkpoint.restored"], -100,
+        "guardian checkpoint.restored runs after other listeners (priority -100)")
+end
 
 game.save = {
     version = "crystal",
