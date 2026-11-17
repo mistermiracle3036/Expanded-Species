@@ -1,3 +1,13 @@
+## [0.8.4] — 2026-11-17
+
+**Updating from 0.6.6?** Everything in 0.7.0-0.8.3 below, plus:
+
+### Added
+
+- **A new Pokemon can wear a classic one's picture in its own colours.** A species can now borrow a
+  Crystal Pokemon's own picture, back and animation straight from your game, recoloured, without any
+  copy of the game's art in a mod. PIKABLU, a blue PIKACHU, is the first.
+
 ## [0.8.3] — 2026-11-13
 
 **Updating from 0.6.6?** Red, Blue and Yellow can use custom species (0.7.0); a mod that adds

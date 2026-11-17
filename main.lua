@@ -1,4 +1,4 @@
-local VERSION = "0.8.3"
+local VERSION = "0.8.4"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
@@ -436,8 +436,27 @@ local function issueText(items)
     return table.concat(lines, "; ")
 end
 
+-- 0.8.4 (REQUESTS 863): `artFrom = "PIKACHU"` borrows that vanilla species' own picture, back and animation
+-- sheet: the game's imported files under assets/generated/battle (the same paths the game's own PIKACHU
+-- record holds), so nothing of the game's art ships in a zip; the definition's palette recolours it.
+-- Explicit spriteFront / spriteBack / anim.sheet in the definition still win.
+local function vanillaArt(id)
+    local slug = string.lower(tostring(id))
+    return "assets/generated/battle/front/" .. slug .. ".png",
+        "assets/generated/battle/back/" .. slug .. "_back.png",
+        "assets/generated/battle/anim/" .. slug .. ".png"
+end
+
 local function applySpeciesDefaults(definition, generation)
     local record = copy(definition)
+    if type(record.artFrom) == "string" and record.artFrom ~= "" then
+        local front, back, sheet = vanillaArt(record.artFrom)
+        if record.spriteFront == nil then record.spriteFront = front end
+        if record.spriteBack == nil then record.spriteBack = back end
+        if type(record.anim) == "table" and record.anim.sheet == nil then
+            record.anim.sheet = sheet
+        end
+    end
     if record.types == nil then record.types = { "NORMAL" } end
     if record.catchRate == nil then record.catchRate = 45 end
     if record.baseExp == nil then record.baseExp = 100 end

@@ -313,6 +313,27 @@ expect(defaultsReport.ok, "safe defaults should complete low-risk fields")
 expectEqual(defaultsReport.definition.types[1], "NORMAL", "default type")
 expectEqual(defaultsReport.definition.catchRate, 45, "default catch rate")
 
+-- 0.8.4 (REQUESTS 863): artFrom borrows a vanilla species' own imported picture, back and animation sheet
+do
+    local borrowed = {}
+    for k, v in pairs(minimal) do borrowed[k] = v end
+    borrowed.id, borrowed.name = "TEST_PACK_BLUEMOUSE", "BLUEMOUSE"
+    borrowed.spriteFront, borrowed.spriteBack = nil, nil
+    borrowed.artFrom = "PIKACHU"
+    borrowed.anim = { tiles = 5, play = { { 1, 7 } }, idle = { { 0, 5 } } }
+    local r = framework.exports.preflight(provider, borrowed)
+    expect(r.ok, "artFrom species passes preflight with no art of its own")
+    expectEqual(r.definition.spriteFront, "assets/generated/battle/front/pikachu.png", "artFrom front")
+    expectEqual(r.definition.spriteBack, "assets/generated/battle/back/pikachu_back.png", "artFrom back")
+    expectEqual(r.definition.anim.sheet, "assets/generated/battle/anim/pikachu.png", "artFrom anim sheet")
+    expectEqual(borrowed.anim.sheet, nil, "artFrom does not write into the caller's definition")
+    local own = {}
+    for k, v in pairs(borrowed) do own[k] = v end
+    own.spriteFront = "assets/own_front.png"
+    expectEqual(framework.exports.preflight(provider, own).definition.spriteFront, "assets/own_front.png",
+        "an explicit spriteFront wins over artFrom")
+end
+
 framework.exports.addGrassEncounter(provider, {
     map = "ROUTE_29",
     species = "TEST_PACK_ALPHA",
