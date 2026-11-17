@@ -1,4 +1,4 @@
-local VERSION = "0.8.4"
+local VERSION = "0.8.5"
 local API_VERSION = 1
 local FIRST_CUSTOM_DEX = 252
 local BASE_ENCOUNTER_WEIGHT = 100
@@ -437,20 +437,45 @@ local function issueText(items)
 end
 
 -- 0.8.4 (REQUESTS 863): `artFrom = "PIKACHU"` borrows that vanilla species' own picture, back and animation
--- sheet: the game's imported files under assets/generated/battle (the same paths the game's own PIKACHU
+-- sheet: the game's own imported battle files (the same ones the game's own PIKACHU
 -- record holds), so nothing of the game's art ships in a zip; the definition's palette recolours it.
 -- Explicit spriteFront / spriteBack / anim.sheet in the definition still win.
-local function vanillaArt(id)
-    local slug = string.lower(tostring(id))
-    return "assets/generated/battle/front/" .. slug .. ".png",
-        "assets/generated/battle/back/" .. slug .. "_back.png",
-        "assets/generated/battle/anim/" .. slug .. ".png"
+-- 0.8.5 (REQUESTS 999): one LITERAL dataset call per file, the only form modkit's ROM-content gate
+-- (MK301) admits in a shipped .lua; add a row here to let another vanilla species lend its art.
+local VANILLA_ART = {
+    PIKACHU = function(v)
+        return v.assets:path("assets/generated/battle/front/pikachu.png"),
+            v.assets:path("assets/generated/battle/back/pikachu_back.png"),
+            v.assets:path("assets/generated/battle/anim/pikachu.png")
+    end,
+    RAICHU = function(v)
+        return v.assets:path("assets/generated/battle/front/raichu.png"),
+            v.assets:path("assets/generated/battle/back/raichu_back.png"),
+            v.assets:path("assets/generated/battle/anim/raichu.png")
+    end,
+}
+local artViews = setmetatable({}, { __mode = "k" })
+
+-- the player's own imported game, seen through the provider mod's dataset view (never bundled)
+local function vanillaArt(id, providerMod)
+    local find = VANILLA_ART[id]
+    if not find or type(providerMod) ~= "table" then return nil end
+    local view = artViews[providerMod]
+    if view == nil then
+        local ok, GameVersion = pcall(require, "src.core.GameVersion")
+        local version = ok and type(GameVersion) == "table" and GameVersion.get and GameVersion.get()
+        local datasets = providerMod.datasets
+        view = (datasets and version and datasets:open(version)) or false
+        artViews[providerMod] = view
+    end
+    if not (view and view.assets) then return nil end
+    return find(view)
 end
 
-local function applySpeciesDefaults(definition, generation)
+local function applySpeciesDefaults(definition, generation, providerMod)
     local record = copy(definition)
     if type(record.artFrom) == "string" and record.artFrom ~= "" then
-        local front, back, sheet = vanillaArt(record.artFrom)
+        local front, back, sheet = vanillaArt(record.artFrom, providerMod)
         if record.spriteFront == nil then record.spriteFront = front end
         if record.spriteBack == nil then record.spriteBack = back end
         if type(record.anim) == "table" and record.anim.sheet == nil then
@@ -572,7 +597,7 @@ local function speciesPreflight(providerMod, definition, generation)
         return { ok = false, errors = errors, warnings = warnings }
     end
 
-    local record = applySpeciesDefaults(definition, generation)
+    local record = applySpeciesDefaults(definition, generation, providerMod)
     if type(record.id) ~= "string" or record.id == "" then
         addIssue(errors, "id", "must be a non-empty globally namespaced string")
     end
@@ -734,7 +759,7 @@ local function normalizeForRegistration(providerMod, definition, generation)
         "Expanded Species: species definition must have a string id")
 
     generation = generation == 1 and 1 or 2
-    local record = applySpeciesDefaults(definition, generation)
+    local record = applySpeciesDefaults(definition, generation, providerMod)
     local marker = type(record.expandedSpecies) == "table" and record.expandedSpecies or {}
     local desiredDex = record.dex
     if not isInteger(desiredDex) or desiredDex < FIRST_CUSTOM_DEX then

@@ -1,3 +1,11 @@
+## [0.8.5] — 2026-11-17
+
+**Updating from 0.6.6?** Everything in 0.7.0-0.8.4 below, plus:
+
+### Fixed
+
+- **Mods that carry PIKABLU can be published.** The way 0.8.4 found the game's own PIKACHU picture tripped the mod packer's safety check; it now asks for it the approved way.
+
 ## [0.8.4] — 2026-11-17
 
 **Updating from 0.6.6?** Everything in 0.7.0-0.8.3 below, plus:

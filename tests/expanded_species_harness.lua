@@ -321,6 +321,10 @@ do
     borrowed.spriteFront, borrowed.spriteBack = nil, nil
     borrowed.artFrom = "PIKACHU"
     borrowed.anim = { tiles = 5, play = { { 1, 7 } }, idle = { { 0, 5 } } }
+    provider.datasets = provider.datasets or { open = function() return { assets = {
+        path = function(_, p) return p end } } end }
+    package.loaded["src.core.GameVersion"] = package.loaded["src.core.GameVersion"]
+        or { get = function() return "crystal" end, generation = function() return 2 end }
     local r = framework.exports.preflight(provider, borrowed)
     expect(r.ok, "artFrom species passes preflight with no art of its own")
     expectEqual(r.definition.spriteFront, "assets/generated/battle/front/pikachu.png", "artFrom front")
